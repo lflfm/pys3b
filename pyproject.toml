@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pys3b"
+version = "0.7.0"
+description = "Simple GUI tool to manage AWS S3 buckets"
+readme = "README.md"
+authors = [
+  { name = "RS-DU34", email = "26166377+RS-DU34@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+  "boto3~=1.42.1",
+  "keyring~=25.2.1"
+]
+
+[project.urls]
+Homepage = "https://github.com/lflfm/pys3b"
+Repository = "https://github.com/lflfm/pys3b.git"
+
+[project.scripts]
+pys3b = "s3_browser.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest~=9.0.2"
+]
+
+[tool.setuptools]
+packages = ["s3_browser"]
