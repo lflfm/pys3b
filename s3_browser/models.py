@@ -40,3 +40,4 @@ class ObjectDetails:
     etag: Optional[str] = None
     content_type: Optional[str] = None
     metadata: dict[str, str] = field(default_factory=dict)
+    checksums: dict[str, str] = field(default_factory=dict)

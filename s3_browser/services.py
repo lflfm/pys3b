@@ -200,7 +200,15 @@ class S3BrowserService:
         """Fetch metadata about a single object."""
 
         client = self._create_client(endpoint_url, access_key, secret_key)
-        response = client.head_object(Bucket=bucket_name, Key=key)
+        response = client.head_object(Bucket=bucket_name, Key=key, ChecksumMode='ENABLED')
+        # print("head response:", response)
+        checksums = {
+            "CRC32": response.get("ChecksumCRC32"),
+            "CRC32C": response.get("ChecksumCRC32C"),
+            "SHA1": response.get("ChecksumSHA1"),
+            "SHA256": response.get("ChecksumSHA256"),
+        }
+        checksums = {name: value for name, value in checksums.items() if value}
         return ObjectDetails(
             bucket=bucket_name,
             key=key,
@@ -210,6 +218,7 @@ class S3BrowserService:
             etag=response.get("ETag"),
             content_type=response.get("ContentType"),
             metadata=dict(response.get("Metadata") or {}),
+            checksums=checksums,
         )
 
     def download_object(
@@ -246,7 +255,16 @@ class S3BrowserService:
 
         client = self._create_client(endpoint_url, access_key, secret_key)
         callback = self._build_transfer_callback(progress_callback, cancel_requested)
-        client.upload_file(source_path, bucket_name, key, Callback=callback)
+        client.upload_file(
+            source_path,
+            bucket_name,
+            key,
+            Callback=callback,
+            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/customizations/s3.html#boto3.s3.transfer.S3Transfer.ALLOWED_UPLOAD_ARGS
+            ExtraArgs={"ChecksumAlgorithm": "SHA256",
+                        "Metadata": {"pys3b_upload": "true"},
+                    },
+        )
 
     def delete_object(
         self,

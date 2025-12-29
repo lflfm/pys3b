@@ -1693,8 +1693,22 @@ class ObjectDetailsDialog:
             entry = ttk.Entry(self.details_frame, textvariable=var, width=40, state="readonly")
             entry.grid(row=idx, column=1, sticky=(tk.W, tk.E), pady=2)
 
+        checksums_row = len(self._detail_vars)
+        ttk.Label(self.details_frame, text="Checksums:").grid(
+            row=checksums_row, column=0, sticky=tk.NW, pady=(10, 0)
+        )
+        self.checksums_text = tk.Text(
+            self.details_frame,
+            width=45,
+            height=4,
+            wrap="word",
+        )
+        self.checksums_text.grid(row=checksums_row, column=1, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.checksums_text.bind("<Key>", self._on_metadata_key)
+
+        metadata_row = checksums_row + 1
         ttk.Label(self.details_frame, text="Metadata:").grid(
-            row=len(self._detail_vars), column=0, sticky=tk.NW, pady=(10, 0)
+            row=metadata_row, column=0, sticky=tk.NW, pady=(10, 0)
         )
         self.metadata_text = tk.Text(
             self.details_frame,
@@ -1702,7 +1716,7 @@ class ObjectDetailsDialog:
             height=8,
             wrap="word",
         )
-        self.metadata_text.grid(row=len(self._detail_vars), column=1, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.metadata_text.grid(row=metadata_row, column=1, sticky=(tk.W, tk.E), pady=(10, 0))
         self.metadata_text.bind("<Key>", self._on_metadata_key)
 
         buttons = ttk.Frame(content)
@@ -1745,6 +1759,8 @@ class ObjectDetailsDialog:
         self._detail_vars["Storage class"].set(details.storage_class or "-")
         self._detail_vars["ETag"].set(details.etag or "-")
         self._detail_vars["Content type"].set(details.content_type or "-")
+        checksums_value = "\n".join(f"{k}: {v}" for k, v in sorted(details.checksums.items())) or "None"
+        self._set_checksums_text(checksums_value)
         metadata_value = "\n".join(f"{k}: {v}" for k, v in sorted(details.metadata.items())) or "None"
         self._set_metadata_text(metadata_value)
 
@@ -1767,6 +1783,11 @@ class ObjectDetailsDialog:
         self.metadata_text.delete("1.0", tk.END)
         self.metadata_text.insert("1.0", text)
         self.metadata_text.see("1.0")
+
+    def _set_checksums_text(self, text: str) -> None:
+        self.checksums_text.delete("1.0", tk.END)
+        self.checksums_text.insert("1.0", text)
+        self.checksums_text.see("1.0")
 
     def _format_size(self, size: int | None) -> str:
         if size is None:

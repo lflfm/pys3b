@@ -6,7 +6,17 @@ Connection profiles are stored in the user folder, secrets are stored in the OS 
 
 ## Installation & Usage
 
-Install directly from GitHub using pip:
+Install directly from GitHub:
+
+
+### Using pipx
+
+```bash
+pipx install git+https://github.com/lflfm/pys3b.git
+pys3b
+```
+
+### Using pip
 
 ```bash
 pip install git+https://github.com/lflfm/pys3b.git
@@ -16,23 +26,21 @@ pys3b
 ### Using a virtual environment
 
 ```bash
-python -m venv pys3b-venv
-source pys3b-venv/bin/activate
+python -m venv venv
+source venv/bin/activate
 pip install git+https://github.com/lflfm/pys3b.git
 pys3b
 ```
 
-### Using pipx
+### Using toolbox
 
 ```bash
+toolbox create pys3b
+toolbox enter pys3b
+sudo dnf install -y python3 python3-pip python3-virtualenv python3-tkinter git
 pipx install git+https://github.com/lflfm/pys3b.git
-pys3b
-```
-
-Or directly through Python:
-
-```bash
-python -m s3_browser
+exit
+toolbox run -c pys3b pys3b
 ```
 
 ## Development
@@ -48,4 +56,17 @@ Run tests with:
 
 ```bash
 pytest
+```
+
+### Using toolbox
+
+```bash
+toolbox create pys3b
+toolbox enter pys3b
+sudo dnf install -y python3 python3-pip python3-virtualenv python3-tkinter git
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e '.[dev]'
+pys3b
 ```
