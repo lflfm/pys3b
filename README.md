@@ -61,8 +61,8 @@ pytest
 ### Using toolbox
 
 ```bash
-toolbox create pys3b
-toolbox enter pys3b
+toolbox create pys3b_dev
+toolbox enter pys3b_dev
 sudo dnf install -y python3 python3-pip python3-virtualenv python3-tkinter git
 python3 -m venv .venv
 source .venv/bin/activate

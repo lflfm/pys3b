@@ -292,14 +292,50 @@ class S3BrowserService:
         expires_in: int = 3600,
         content_type: str | None = None,
         content_disposition: str | None = None,
-    ) -> str:
-        """Create a presigned URL for the requested object operation."""
+        post_key_mode: str = "single",
+        max_size: int | None = None,
+    ) -> str | dict[str, dict[str, str] | str]:
+        """Create a presigned URL or POST policy for the requested object operation."""
 
         operation = method.strip().lower()
-        if operation not in {"get", "put"}:
-            raise ValueError("method must be either 'get' or 'put'")
+        if operation not in {"get", "put", "post"}:
+            raise ValueError("method must be either 'get', 'put', or 'post'")
         if expires_in <= 0:
             raise ValueError("expires_in must be greater than zero")
+
+        if operation == "post":
+            if max_size is None or max_size <= 0:
+                raise ValueError("max_size must be greater than zero for POST")
+            key_mode = post_key_mode.strip().lower() or "single"
+            if key_mode not in {"single", "prefix"}:
+                raise ValueError("post_key_mode must be either 'single' or 'prefix'")
+
+            fields: dict[str, str] = {}
+            conditions: list[object] = [["content-length-range", 0, max_size]]
+            if key_mode == "prefix":
+                prefix = key.strip()
+                if prefix and not prefix.endswith("/"):
+                    prefix += "/"
+                key_value = f"{prefix}${{filename}}" if prefix else "${filename}"
+                fields["key"] = key_value
+                conditions.append(["starts-with", "$key", prefix])
+            else:
+                key_value = key
+                fields["key"] = key_value
+                conditions.append(["eq", "$key", key_value])
+
+            if content_type:
+                fields["Content-Type"] = content_type
+                conditions.append(["eq", "$Content-Type", content_type])
+
+            client = self._create_client(endpoint_url, access_key, secret_key)
+            return client.generate_presigned_post(
+                Bucket=bucket_name,
+                Key=key_value,
+                Fields=fields,
+                Conditions=conditions,
+                ExpiresIn=expires_in,
+            )
 
         client_method = "get_object" if operation == "get" else "put_object"
         params: dict[str, str] = {"Bucket": bucket_name, "Key": key}

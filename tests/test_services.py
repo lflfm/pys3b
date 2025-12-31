@@ -19,6 +19,7 @@ class FakeS3Client:
         upload_errors=None,
         delete_errors=None,
         presigned_url_outputs=None,
+        presigned_post_outputs=None,
         transfer_sequences=None,
     ):
         self.buckets = buckets
@@ -35,6 +36,8 @@ class FakeS3Client:
         self.delete_object_errors = delete_errors or {}
         self.presigned_url_outputs = presigned_url_outputs or {}
         self.presigned_url_calls = []
+        self.presigned_post_outputs = presigned_post_outputs or {}
+        self.presigned_post_calls = []
         self.transfer_sequences = transfer_sequences or {}
 
     def list_buckets(self):
@@ -69,7 +72,7 @@ class FakeS3Client:
             for amount in self.transfer_sequences.get(("download", bucket, key), []):
                 Callback(amount)
 
-    def upload_file(self, filename, bucket, key, Callback=None):
+    def upload_file(self, filename, bucket, key, Callback=None, ExtraArgs=None):
         self.upload_file_calls.append((filename, bucket, key))
         error = self.upload_file_errors.get((bucket, key))
         if isinstance(error, Exception):
@@ -97,6 +100,21 @@ class FakeS3Client:
         )
         key = (client_method, params.get("Bucket"), params.get("Key"))
         result = self.presigned_url_outputs.get(key, "signed-url")
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def generate_presigned_post(self, Bucket=None, Key=None, Fields=None, Conditions=None, ExpiresIn=3600):
+        self.presigned_post_calls.append(
+            {
+                "bucket": Bucket,
+                "key": Key,
+                "fields": Fields or {},
+                "conditions": Conditions or [],
+                "expires_in": ExpiresIn,
+            }
+        )
+        result = self.presigned_post_outputs.get((Bucket, Key), {"url": "post-url", "fields": Fields or {}})
         if isinstance(result, Exception):
             raise result
         return result
@@ -442,6 +460,44 @@ class S3BrowserServiceTests(unittest.TestCase):
         self.assertEqual("application/octet-stream", call["params"]["ContentType"])
         self.assertEqual("inline", call["params"]["ContentDisposition"])
 
+    def test_generate_presigned_post_builds_prefix_conditions(self):
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {"bucket-one": [{"Contents": []}]},
+            presigned_post_outputs={
+                ("bucket-one", "uploads/${filename}"): {
+                    "url": "https://example.com/post",
+                    "fields": {"key": "uploads/${filename}"},
+                },
+            },
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        result = service.generate_presigned_url(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+            key="uploads",
+            method="post",
+            expires_in=900,
+            content_type="text/plain",
+            post_key_mode="prefix",
+            max_size=1024,
+        )
+
+        self.assertEqual("https://example.com/post", result["url"])
+        self.assertEqual({"key": "uploads/${filename}"}, result["fields"])
+        call = fake_client.presigned_post_calls[0]
+        self.assertEqual("bucket-one", call["bucket"])
+        self.assertEqual("uploads/${filename}", call["key"])
+        self.assertEqual(900, call["expires_in"])
+        self.assertIn(["content-length-range", 0, 1024], call["conditions"])
+        self.assertIn(["starts-with", "$key", "uploads/"], call["conditions"])
+        self.assertIn(["eq", "$Content-Type", "text/plain"], call["conditions"])
+        self.assertEqual("uploads/${filename}", call["fields"]["key"])
+        self.assertEqual("text/plain", call["fields"]["Content-Type"])
+
     def test_generate_presigned_url_validates_inputs(self):
         fake_client = FakeS3Client(["bucket-one"], {"bucket-one": [{"Contents": []}]})
         service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
@@ -465,6 +521,30 @@ class S3BrowserServiceTests(unittest.TestCase):
                 key="file.txt",
                 method="get",
                 expires_in=0,
+            )
+
+        with self.assertRaises(ValueError):
+            service.generate_presigned_url(
+                endpoint_url="https://example.com",
+                access_key="access",
+                secret_key="secret",
+                bucket_name="bucket-one",
+                key="file.txt",
+                method="post",
+                post_key_mode="single",
+                max_size=0,
+            )
+
+        with self.assertRaises(ValueError):
+            service.generate_presigned_url(
+                endpoint_url="https://example.com",
+                access_key="access",
+                secret_key="secret",
+                bucket_name="bucket-one",
+                key="file.txt",
+                method="post",
+                post_key_mode="unknown",
+                max_size=10,
             )
 
 

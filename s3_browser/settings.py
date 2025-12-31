@@ -11,6 +11,7 @@ class AppSettings:
     """Simple container for persistent app settings."""
 
     fetch_limit: int = 10
+    default_post_max_size: int = 10485760
 
 
 class SettingsStorage:
@@ -29,16 +30,26 @@ class SettingsStorage:
         except (OSError, json.JSONDecodeError):
             return AppSettings()
         fetch_limit = data.get("fetch_limit", AppSettings.fetch_limit)
+        default_post_max_size = data.get("default_post_max_size", AppSettings.default_post_max_size)
         try:
             fetch_value = int(fetch_limit)
         except (TypeError, ValueError):
             fetch_value = AppSettings.fetch_limit
         if fetch_value <= 0:
             fetch_value = AppSettings.fetch_limit
-        return AppSettings(fetch_limit=fetch_value)
+        try:
+            max_size_value = int(default_post_max_size)
+        except (TypeError, ValueError):
+            max_size_value = AppSettings.default_post_max_size
+        if max_size_value <= 0:
+            max_size_value = AppSettings.default_post_max_size
+        return AppSettings(fetch_limit=fetch_value, default_post_max_size=max_size_value)
 
     def save(self, settings: AppSettings) -> None:
-        payload = {"fetch_limit": max(int(settings.fetch_limit), 1)}
+        payload = {
+            "fetch_limit": max(int(settings.fetch_limit), 1),
+            "default_post_max_size": max(int(settings.default_post_max_size), 1),
+        }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

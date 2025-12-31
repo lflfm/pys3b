@@ -163,7 +163,9 @@ class S3BrowserController:
         expires_in: int = 3600,
         content_type: str | None = None,
         content_disposition: str | None = None,
-    ) -> str:
+        post_key_mode: str = "single",
+        max_size: int | None = None,
+    ) -> str | dict[str, dict[str, str] | str]:
         params = self._require_connection()
         return self._service.generate_presigned_url(
             bucket_name=bucket_name,
@@ -172,6 +174,8 @@ class S3BrowserController:
             expires_in=expires_in,
             content_type=content_type,
             content_disposition=content_disposition,
+            post_key_mode=post_key_mode,
+            max_size=max_size,
             **params,
         )
 

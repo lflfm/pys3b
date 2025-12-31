@@ -17,6 +17,8 @@ from .services import TransferCancelledError
 from .settings import AppSettings, SettingsStorage
 
 DIST_NAME = "pys3b"
+SIZE_UNITS = ("B", "KB", "MB")
+SIZE_UNIT_FACTORS = {"B": 1, "KB": 1024, "MB": 1024 * 1024}
 
 @dataclass(frozen=True)
 class PackageInfo:
@@ -61,6 +63,29 @@ def _load_package_info() -> PackageInfo:
         repository=repository,
         author=author or None,
     )
+
+
+def _split_size_bytes(size_bytes: int) -> tuple[str, str]:
+    if size_bytes <= 0:
+        return ("1", "MB")
+    for unit in ("MB", "KB"):
+        factor = SIZE_UNIT_FACTORS[unit]
+        if size_bytes >= factor and size_bytes % factor == 0:
+            return (str(size_bytes // factor), unit)
+    return (str(size_bytes), "B")
+
+
+def _parse_size_bytes(value: str, unit: str) -> int | None:
+    try:
+        amount = int(value.strip())
+    except (TypeError, ValueError):
+        return None
+    if amount <= 0:
+        return None
+    factor = SIZE_UNIT_FACTORS.get(unit.strip().upper())
+    if not factor:
+        return None
+    return amount * factor
 
 
 class S3BrowserApp:
@@ -390,13 +415,30 @@ class S3BrowserApp:
         frame.pack(fill=tk.BOTH, expand=True)
 
         temp_var = tk.StringVar(value=self.max_keys_var.get())
+        default_size_value, default_size_unit = _split_size_bytes(self._app_settings.default_post_max_size)
+        size_var = tk.StringVar(value=default_size_value)
+        size_unit_var = tk.StringVar(value=default_size_unit)
 
         ttk.Label(frame, text="Fetch limit:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
         entry = ttk.Entry(frame, textvariable=temp_var, width=10, justify="right")
         entry.grid(row=0, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
 
+        ttk.Label(frame, text="Default POST max size:").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
+        size_frame = ttk.Frame(frame)
+        size_frame.grid(row=1, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
+        size_entry = ttk.Entry(size_frame, textvariable=size_var, width=10, justify="right")
+        size_entry.grid(row=0, column=0, sticky=tk.W)
+        size_unit = ttk.Combobox(
+            size_frame,
+            textvariable=size_unit_var,
+            values=SIZE_UNITS,
+            state="readonly",
+            width=6,
+        )
+        size_unit.grid(row=0, column=1, sticky=tk.W, padx=(6, 0))
+
         buttons = ttk.Frame(frame)
-        buttons.grid(row=1, column=0, columnspan=2, pady=(5, 0), sticky=tk.E)
+        buttons.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky=tk.E)
 
         def save_settings() -> None:
             try:
@@ -407,7 +449,13 @@ class S3BrowserApp:
             if max_keys <= 0:
                 messagebox.showerror("Error", "Max objects must be greater than zero")
                 return
+            max_size = _parse_size_bytes(size_var.get(), size_unit_var.get())
+            if max_size is None:
+                messagebox.showerror("Error", "Default POST max size must be a whole number greater than zero")
+                return
             self._update_fetch_limit(max_keys, trigger_refresh=False)
+            self._app_settings.default_post_max_size = max_size
+            self._settings_storage.save(self._app_settings)
             self._close_settings_window()
 
         ttk.Button(buttons, text="Save", command=save_settings).grid(row=0, column=0, padx=(0, 5))
@@ -1316,6 +1364,7 @@ class S3BrowserApp:
             self.root,
             initial_bucket=bucket_name or "",
             initial_key=key_name or "",
+            default_max_size=self._app_settings.default_post_max_size,
             on_generate=self._generate_signed_url,
         )
         dialog.show()
@@ -1323,7 +1372,7 @@ class S3BrowserApp:
     def _generate_signed_url(
         self,
         payload: dict,
-        on_success: Callable[[str], None],
+        on_success: Callable[[str | dict[str, dict[str, str] | str]], None],
         on_error: Callable[[str], None],
     ) -> None:
         def task() -> None:
@@ -1947,7 +1996,11 @@ class SignedUrlDialog:
         *,
         initial_bucket: str,
         initial_key: str,
-        on_generate: Callable[[dict, Callable[[str], None], Callable[[str], None]], None],
+        default_max_size: int,
+        on_generate: Callable[
+            [dict, Callable[[str | dict[str, dict[str, str] | str]], None], Callable[[str], None]],
+            None,
+        ],
         initial_method: str = "get",
     ):
         self.parent = parent
@@ -1969,14 +2022,18 @@ class SignedUrlDialog:
         self.bucket_var = tk.StringVar(value=initial_bucket or "")
         self.key_var = tk.StringVar(value=initial_key or "")
         method_value = (initial_method or "get").strip().lower() or "get"
-        if method_value not in {"get", "put"}:
+        if method_value not in {"get", "put", "post"}:
             method_value = "get"
         self.method_var = tk.StringVar(value=method_value)
+        self.post_mode_var = tk.StringVar(value="single")
         self.expires_var = tk.StringVar(value="3600")
+        default_size_value, default_size_unit = _split_size_bytes(default_max_size)
+        self.max_size_var = tk.StringVar(value=default_size_value)
+        self.max_size_unit_var = tk.StringVar(value=default_size_unit)
         self.content_type_var = tk.StringVar()
         self.content_disposition_var = tk.StringVar()
         self.full_path_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Provide the bucket and key, then click Generate.")
+        self.status_var = tk.StringVar(value="")
 
         ttk.Label(content, text="Bucket:").grid(row=0, column=0, sticky=tk.W, pady=2)
         self.bucket_entry = ttk.Entry(content, textvariable=self.bucket_var, width=40, state="readonly")
@@ -1995,26 +2052,53 @@ class SignedUrlDialog:
         self.method_radios = [
             ttk.Radiobutton(method_frame, text="GET", value="get", variable=self.method_var),
             ttk.Radiobutton(method_frame, text="PUT", value="put", variable=self.method_var),
+            ttk.Radiobutton(method_frame, text="POST", value="post", variable=self.method_var),
         ]
         for idx, radio in enumerate(self.method_radios):
             radio.grid(row=0, column=idx, padx=(0, 10))
 
-        ttk.Label(content, text="Expiration (seconds):").grid(row=4, column=0, sticky=tk.W, pady=2)
+        self.post_mode_label = ttk.Label(content, text="POST key mode:")
+        self.post_mode_label.grid(row=4, column=0, sticky=tk.W, pady=2)
+        self.post_mode_frame = ttk.Frame(content)
+        self.post_mode_frame.grid(row=4, column=1, sticky=tk.W, pady=2)
+        self.post_mode_radios = [
+            ttk.Radiobutton(self.post_mode_frame, text="Single file", value="single", variable=self.post_mode_var),
+            ttk.Radiobutton(self.post_mode_frame, text="Key prefix", value="prefix", variable=self.post_mode_var),
+        ]
+        for idx, radio in enumerate(self.post_mode_radios):
+            radio.grid(row=0, column=idx, padx=(0, 10))
+
+        self.max_size_label = ttk.Label(content, text="Max file size:")
+        self.max_size_label.grid(row=5, column=0, sticky=tk.W, pady=2)
+        self.max_size_frame = ttk.Frame(content)
+        self.max_size_frame.grid(row=5, column=1, sticky=tk.W, pady=2)
+        self.max_size_entry = ttk.Entry(self.max_size_frame, textvariable=self.max_size_var, width=10, justify="right")
+        self.max_size_entry.grid(row=0, column=0, sticky=tk.W)
+        self.max_size_unit = ttk.Combobox(
+            self.max_size_frame,
+            textvariable=self.max_size_unit_var,
+            values=SIZE_UNITS,
+            state="readonly",
+            width=6,
+        )
+        self.max_size_unit.grid(row=0, column=1, sticky=tk.W, padx=(6, 0))
+
+        ttk.Label(content, text="Expiration (seconds):").grid(row=6, column=0, sticky=tk.W, pady=2)
         self.expires_entry = ttk.Entry(content, textvariable=self.expires_var, width=15, justify="right")
-        self.expires_entry.grid(row=4, column=1, sticky=tk.W, pady=2)
+        self.expires_entry.grid(row=6, column=1, sticky=tk.W, pady=2)
 
-        ttk.Label(content, text="Content-Type (optional):").grid(row=5, column=0, sticky=tk.W, pady=2)
+        ttk.Label(content, text="Content-Type (optional):").grid(row=7, column=0, sticky=tk.W, pady=2)
         self.content_type_entry = ttk.Entry(content, textvariable=self.content_type_var, width=40)
-        self.content_type_entry.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=2)
+        self.content_type_entry.grid(row=7, column=1, sticky=(tk.W, tk.E), pady=2)
 
-        ttk.Label(content, text="Content-Disposition (optional):").grid(row=6, column=0, sticky=tk.W, pady=2)
+        ttk.Label(content, text="Content-Disposition (optional):").grid(row=8, column=0, sticky=tk.W, pady=2)
         self.content_disposition_entry = ttk.Entry(
             content, textvariable=self.content_disposition_var, width=40
         )
-        self.content_disposition_entry.grid(row=6, column=1, sticky=(tk.W, tk.E), pady=2)
+        self.content_disposition_entry.grid(row=8, column=1, sticky=(tk.W, tk.E), pady=2)
 
         self.url_frame = ttk.Frame(content)
-        self.url_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.url_frame.grid(row=9, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         self.url_frame.columnconfigure(0, weight=1)
         ttk.Label(self.url_frame, text="Signed URL:").grid(row=0, column=0, sticky=tk.W)
         self.url_text = tk.Text(self.url_frame, width=55, height=5, wrap="word")
@@ -2024,7 +2108,7 @@ class SignedUrlDialog:
         self.url_frame.grid_remove()
 
         self.wget_frame = ttk.Frame(content)
-        self.wget_frame.grid(row=8, column=0, columnspan=2, sticky=(tk.W, tk.E))
+        self.wget_frame.grid(row=10, column=0, columnspan=2, sticky=(tk.W, tk.E))
         self.wget_frame.columnconfigure(0, weight=1)
         ttk.Label(self.wget_frame, text="wget command:").grid(row=0, column=0, sticky=tk.W)
         self.wget_text = tk.Text(self.wget_frame, width=55, height=3, wrap="word")
@@ -2036,7 +2120,7 @@ class SignedUrlDialog:
         self.wget_frame.grid_remove()
 
         self.curl_frame = ttk.Frame(content)
-        self.curl_frame.grid(row=9, column=0, columnspan=2, sticky=(tk.W, tk.E))
+        self.curl_frame.grid(row=11, column=0, columnspan=2, sticky=(tk.W, tk.E))
         self.curl_frame.columnconfigure(0, weight=1)
         ttk.Label(self.curl_frame, text="curl command:").grid(row=0, column=0, sticky=tk.W)
         self.curl_text = tk.Text(self.curl_frame, width=55, height=3, wrap="word")
@@ -2047,19 +2131,17 @@ class SignedUrlDialog:
         ).grid(row=1, column=1, sticky=tk.N, padx=(5, 0))
         self.curl_frame.grid_remove()
 
-        ttk.Label(content, textvariable=self.status_var, foreground="gray").grid(
-            row=10, column=0, columnspan=2, sticky=tk.W, pady=(10, 0)
-        )
-
         buttons = ttk.Frame(content)
-        buttons.grid(row=11, column=0, columnspan=2, pady=(10, 0), sticky=tk.E)
+        buttons.grid(row=12, column=0, columnspan=2, pady=(10, 0), sticky=tk.E)
         self.generate_button = ttk.Button(buttons, text="Generate", command=self._on_generate)
         self.generate_button.grid(row=0, column=0, padx=5)
         ttk.Button(buttons, text="Close", command=self.close).grid(row=0, column=1, padx=5)
 
         self.bucket_var.trace_add("write", lambda *_: self._update_full_path())
         self.key_var.trace_add("write", lambda *_: self._update_full_path())
+        self.method_var.trace_add("write", lambda *_: self._toggle_post_options())
         self._update_full_path()
+        self._toggle_post_options()
 
         self.top.protocol("WM_DELETE_WINDOW", self.close)
         self.key_entry.focus()
@@ -2083,6 +2165,14 @@ class SignedUrlDialog:
         else:
             self.full_path_var.set("s3://")
 
+    def _toggle_post_options(self) -> None:
+        is_post = (self.method_var.get().strip().lower() or "get") == "post"
+        for widget in (self.post_mode_label, self.post_mode_frame, self.max_size_label, self.max_size_frame):
+            if is_post:
+                widget.grid()
+            else:
+                widget.grid_remove()
+
     def _on_generate(self) -> None:
         if self._generated or self._in_progress:
             return
@@ -2103,36 +2193,52 @@ class SignedUrlDialog:
             messagebox.showerror("Error", "Expiration must be greater than zero", parent=self.top)
             return
 
+        method = self.method_var.get().strip().lower() or "get"
+        max_size = None
+        post_key_mode = "single"
+        if method == "post":
+            post_key_mode = self.post_mode_var.get().strip().lower() or "single"
+            max_size = _parse_size_bytes(self.max_size_var.get(), self.max_size_unit_var.get())
+            if max_size is None:
+                messagebox.showerror("Error", "Max file size must be a whole number greater than zero", parent=self.top)
+                return
+
         content_type = self.content_type_var.get().strip() or None
         content_disposition = self.content_disposition_var.get().strip() or None
         payload = {
             "bucket_name": bucket,
             "key": key,
-            "method": self.method_var.get().strip().lower() or "get",
+            "method": method,
             "expires_in": expires,
             "content_type": content_type,
             "content_disposition": content_disposition,
+            "post_key_mode": post_key_mode,
+            "max_size": max_size,
         }
 
         self._in_progress = True
-        self.status_var.set("Generating signed URL...")
         self.generate_button.config(state="disabled")
         self._on_generate_request(payload, self._handle_generate_success, self._handle_generate_error)
 
-    def _handle_generate_success(self, url: str) -> None:
+    def _handle_generate_success(self, result: str | dict[str, dict[str, str] | str]) -> None:
         if self._closed:
             return
         self._generated = True
         self._in_progress = False
-        self.status_var.set("Signed URL ready. Copy it below.")
         self._lock_fields()
-        self._display_url(url)
+        if isinstance(result, dict):
+            url = str(result.get("url", ""))
+            fields = result.get("fields")
+            post_fields = fields if isinstance(fields, dict) else None
+            self._display_url(url, post_fields=post_fields)
+        else:
+            self._display_url(result)
 
     def _handle_generate_error(self, message: str) -> None:
         if self._closed:
             return
         self._in_progress = False
-        self.status_var.set(f"Error generating URL: {message}")
+        messagebox.showerror("Signed URL", f"Error generating URL: {message}", parent=self.top)
         if not self._generated:
             self.generate_button.config(state="normal")
 
@@ -2141,19 +2247,33 @@ class SignedUrlDialog:
             self.bucket_entry,
             self.key_entry,
             self.expires_entry,
+            self.max_size_entry,
             self.content_type_entry,
             self.content_disposition_entry,
         ):
             entry.config(state="readonly")
         for radio in self.method_radios:
             radio.config(state="disabled")
+        for radio in self.post_mode_radios:
+            radio.config(state="disabled")
+        self.max_size_unit.config(state="disabled")
         self.generate_button.config(state="disabled")
 
-    def _display_url(self, url: str) -> None:
-        self._show_text_block(self.url_frame, self.url_text, url)
-        wget_cmd, curl_cmd = self._build_command_texts(url)
-        self._show_text_block(self.wget_frame, self.wget_text, wget_cmd)
-        self._show_text_block(self.curl_frame, self.curl_text, curl_cmd)
+    def _display_url(self, url: str, post_fields: dict[str, str] | None = None) -> None:
+        method = self.method_var.get().strip().lower() or "get"
+        if method == "post":
+            self.url_frame.grid_remove()
+        else:
+            self._show_text_block(self.url_frame, self.url_text, url)
+        wget_cmd, curl_cmd = self._build_command_texts(url, post_fields=post_fields)
+        if wget_cmd:
+            self._show_text_block(self.wget_frame, self.wget_text, wget_cmd)
+        else:
+            self.wget_frame.grid_remove()
+        if curl_cmd:
+            self._show_text_block(self.curl_frame, self.curl_text, curl_cmd)
+        else:
+            self.curl_frame.grid_remove()
 
     def _copy_url(self) -> None:
         self._copy_from_text(self.url_text, "Signed URL copied to clipboard.")
@@ -2173,13 +2293,29 @@ class SignedUrlDialog:
         widget.insert("1.0", value)
         widget.see("1.0")
 
-    def _build_command_texts(self, url: str) -> tuple[str, str]:
+    def _build_command_texts(
+        self,
+        url: str,
+        *,
+        post_fields: dict[str, str] | None = None,
+    ) -> tuple[str | None, str | None]:
         method = self.method_var.get().strip().lower() or "get"
         filename = self._suggest_command_filename()
         if method == "get":
             wget_cmd = f'wget "{url}" -O "{filename}"'
             curl_cmd = f'curl -L "{url}" -o "{filename}"'
             return wget_cmd, curl_cmd
+
+        if method == "post":
+            fields = post_fields or {}
+            curl_parts = ["curl", "-X", "POST"]
+            ordered_keys = [key for key in ("key",) if key in fields]
+            ordered_keys.extend(sorted(key for key in fields.keys() if key not in ordered_keys))
+            for key in ordered_keys:
+                curl_parts.append(f'-F "{key}={fields[key]}"')
+            curl_parts.append('-F "file=@PATH_TO_FILE"')
+            curl_parts.append(f'"{url}"')
+            return None, " ".join(curl_parts)
 
         headers: list[tuple[str, str]] = []
         content_type = self.content_type_var.get().strip()
