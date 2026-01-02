@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pys3b"
-version = "0.8.0"
+version = "0.8.1"
 description = "Simple GUI tool to manage AWS S3 buckets"
 readme = "README.md"
 authors = [

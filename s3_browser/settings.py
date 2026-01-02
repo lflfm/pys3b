@@ -12,6 +12,9 @@ class AppSettings:
 
     fetch_limit: int = 10
     default_post_max_size: int = 10485760
+    remember_last_bucket: bool = False
+    last_bucket: str = ""
+    last_connection: str = ""
 
 
 class SettingsStorage:
@@ -43,12 +46,28 @@ class SettingsStorage:
             max_size_value = AppSettings.default_post_max_size
         if max_size_value <= 0:
             max_size_value = AppSettings.default_post_max_size
-        return AppSettings(fetch_limit=fetch_value, default_post_max_size=max_size_value)
+        remember_last_bucket = bool(data.get("remember_last_bucket", AppSettings.remember_last_bucket))
+        last_bucket = data.get("last_bucket", AppSettings.last_bucket)
+        if not isinstance(last_bucket, str):
+            last_bucket = AppSettings.last_bucket
+        last_connection = data.get("last_connection", AppSettings.last_connection)
+        if not isinstance(last_connection, str):
+            last_connection = AppSettings.last_connection
+        return AppSettings(
+            fetch_limit=fetch_value,
+            default_post_max_size=max_size_value,
+            remember_last_bucket=remember_last_bucket,
+            last_bucket=last_bucket,
+            last_connection=last_connection,
+        )
 
     def save(self, settings: AppSettings) -> None:
         payload = {
             "fetch_limit": max(int(settings.fetch_limit), 1),
             "default_post_max_size": max(int(settings.default_post_max_size), 1),
+            "remember_last_bucket": bool(settings.remember_last_bucket),
+            "last_bucket": settings.last_bucket or "",
+            "last_connection": settings.last_connection or "",
         }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

@@ -129,6 +129,7 @@ class S3BrowserApp:
         self._create_context_menus()
         self._refresh_selection_controls()
         self.root.bind("<Button-1>", self._handle_left_click, add="+")
+        self._auto_connect_if_enabled()
 
     def create_connection(self, *, connect_on_save: bool = False) -> None:
         primary_action = "save_and_connect" if connect_on_save else "save"
@@ -167,7 +168,9 @@ class S3BrowserApp:
         if not result:
             return
         action = result["action"]
-        if action in {"save", "save_and_connect"}:
+        if action == "connect":
+            self.connect(result["name"])
+        elif action in {"save", "save_and_connect"}:
             profile: ConnectionProfile = result["profile"]
             try:
                 self.controller.save_profile(profile, original_name=result.get("original_name"))
@@ -183,6 +186,9 @@ class S3BrowserApp:
             except ValueError as exc:
                 messagebox.showerror("Error", str(exc))
                 return
+            if self._app_settings.remember_last_bucket and result["name"] == self._app_settings.last_connection:
+                self._app_settings.last_connection = ""
+                self._settings_storage.save(self._app_settings)
             self._refresh_connection_menu()
 
     def _refresh_connection_menu(self, selected_name: str | None = None) -> None:
@@ -194,7 +200,12 @@ class S3BrowserApp:
         elif current in names:
             pass
         elif names:
-            self.connection_var.set(names[0])
+            preferred = ""
+            if self._app_settings.remember_last_bucket:
+                candidate = self._app_settings.last_connection
+                if candidate in names:
+                    preferred = candidate
+            self.connection_var.set(preferred or names[0])
         else:
             self.connection_var.set("")
         if self._connection_menu:
@@ -418,6 +429,7 @@ class S3BrowserApp:
         default_size_value, default_size_unit = _split_size_bytes(self._app_settings.default_post_max_size)
         size_var = tk.StringVar(value=default_size_value)
         size_unit_var = tk.StringVar(value=default_size_unit)
+        remember_bucket_var = tk.BooleanVar(value=self._app_settings.remember_last_bucket)
 
         ttk.Label(frame, text="Fetch limit:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
         entry = ttk.Entry(frame, textvariable=temp_var, width=10, justify="right")
@@ -437,8 +449,17 @@ class S3BrowserApp:
         )
         size_unit.grid(row=0, column=1, sticky=tk.W, padx=(6, 0))
 
+        remember_checkbox = ttk.Checkbutton(
+            frame,
+            text="Remember last active connection & bucket",
+            variable=remember_bucket_var,
+            onvalue=True,
+            offvalue=False,
+        )
+        remember_checkbox.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+
         buttons = ttk.Frame(frame)
-        buttons.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky=tk.E)
+        buttons.grid(row=3, column=0, columnspan=2, pady=(5, 0), sticky=tk.E)
 
         def save_settings() -> None:
             try:
@@ -455,6 +476,14 @@ class S3BrowserApp:
                 return
             self._update_fetch_limit(max_keys, trigger_refresh=False)
             self._app_settings.default_post_max_size = max_size
+            self._app_settings.remember_last_bucket = bool(remember_bucket_var.get())
+            if self._app_settings.remember_last_bucket:
+                current_bucket = self.bucket_var.get().strip()
+                if current_bucket:
+                    self._app_settings.last_bucket = current_bucket
+                current_connection = self.connection_var.get().strip()
+                if current_connection:
+                    self._app_settings.last_connection = current_connection
             self._settings_storage.save(self._app_settings)
             self._close_settings_window()
 
@@ -567,14 +596,36 @@ class S3BrowserApp:
             self.root.after(0, self._end_operation)
 
     def _handle_connect_success(self, buckets: list[str]) -> None:
+        if self._app_settings.remember_last_bucket:
+            selected = self.controller.selected_profile or self.connection_var.get().strip()
+            if selected:
+                self._app_settings.last_connection = selected
+                self._settings_storage.save(self._app_settings)
         self._update_bucket_menu(buckets)
         self._set_status("Connected. Buckets loaded.")
+
+    def _auto_connect_if_enabled(self) -> None:
+        if not self._app_settings.remember_last_bucket:
+            return
+        last_connection = self._app_settings.last_connection
+        if not last_connection:
+            return
+        names = [profile.name for profile in self.controller.list_profiles()]
+        if last_connection not in names:
+            return
+        self.connection_var.set(last_connection)
+        self.root.after(0, lambda: self.connect(last_connection))
 
     def _update_bucket_menu(self, buckets: list[str]) -> None:
         self._bucket_names = list(buckets)
         current = self.bucket_var.get()
         if current not in self._bucket_names:
-            new_value = self._bucket_names[0] if self._bucket_names else ""
+            preferred = ""
+            if self._app_settings.remember_last_bucket:
+                candidate = self._app_settings.last_bucket
+                if candidate in self._bucket_names:
+                    preferred = candidate
+            new_value = preferred or (self._bucket_names[0] if self._bucket_names else "")
             if new_value != current:
                 self.bucket_var.set(new_value)
                 if new_value:
@@ -648,6 +699,11 @@ class S3BrowserApp:
 
     def _on_bucket_selected(self) -> None:
         self._refresh_upload_controls()
+        if self._app_settings.remember_last_bucket:
+            bucket_name = self.bucket_var.get().strip()
+            if bucket_name and bucket_name != self._app_settings.last_bucket:
+                self._app_settings.last_bucket = bucket_name
+                self._settings_storage.save(self._app_settings)
         self._schedule_object_refresh()
 
     def _schedule_object_refresh(self) -> None:
@@ -1582,11 +1638,22 @@ class ConnectionDialog:
         self.original_name = profile.name if profile else None
         self._primary_action = primary_action or "save"
         if primary_label:
-            self._primary_label = primary_label
+            self._save_label = primary_label
         elif self._primary_action == "save":
-            self._primary_label = "Save"
+            self._save_label = "Save"
         else:
-            self._primary_label = self._primary_action.replace("_", " ").title()
+            self._save_label = self._primary_action.replace("_", " ").title()
+        self._connect_on_save = self._primary_action == "save_and_connect"
+        self._original_values = (
+            {
+                "name": profile.name,
+                "endpoint_url": profile.endpoint_url,
+                "access_key": profile.access_key,
+                "secret_key": profile.secret_key,
+            }
+            if profile
+            else None
+        )
 
         self.top = tk.Toplevel(parent)
         self.top.title(title)
@@ -1625,40 +1692,81 @@ class ConnectionDialog:
         buttons = ttk.Frame(content)
         buttons.grid(row=4, column=0, columnspan=2, pady=(10, 0), sticky=tk.E)
 
-        ttk.Button(buttons, text=self._primary_label, command=self._on_save).grid(row=0, column=0, padx=5)
+        self._primary_button = ttk.Button(buttons, text=self._save_label, command=self._on_save)
+        self._primary_button.grid(row=0, column=0, padx=5)
         ttk.Button(buttons, text="Cancel", command=self._on_cancel).grid(row=0, column=1, padx=5)
         if profile:
             ttk.Button(buttons, text="Delete", command=self._on_delete).grid(row=0, column=2, padx=5)
 
         self.top.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        for var in (self.name_var, self.endpoint_var, self.access_key_var, self.secret_key_var):
+            var.trace_add("write", self._on_field_change)
+        self._update_primary_state()
 
     def show(self) -> dict | None:
         self.parent.wait_window(self.top)
         return self.result
 
     def _validate_fields(self) -> bool:
-        if not all(
+        if not self._fields_filled():
+            messagebox.showerror("Error", "All fields are required")
+            return False
+        return True
+
+    def _fields_filled(self) -> bool:
+        return all(
             [
                 self.name_var.get().strip(),
                 self.endpoint_var.get().strip(),
                 self.access_key_var.get().strip(),
                 self.secret_key_var.get().strip(),
             ]
-        ):
-            messagebox.showerror("Error", "All fields are required")
-            return False
-        return True
+        )
+
+    def _has_changes(self) -> bool:
+        if not self._original_values:
+            return True
+        current = {
+            "name": self.name_var.get().strip(),
+            "endpoint_url": self.endpoint_var.get().strip(),
+            "access_key": self.access_key_var.get().strip(),
+            "secret_key": self.secret_key_var.get().strip(),
+        }
+        return current != self._original_values
+
+    def _resolve_primary_action(self) -> str:
+        if self._connect_on_save and self._original_values and not self._has_changes():
+            return "connect"
+        return self._primary_action
+
+    def _resolve_primary_label(self) -> str:
+        if self._connect_on_save and self._original_values and not self._has_changes():
+            return "Connect"
+        return self._save_label
+
+    def _on_field_change(self, *_: object) -> None:
+        self._update_primary_state()
+
+    def _update_primary_state(self) -> None:
+        label = self._resolve_primary_label()
+        state = "normal" if self._fields_filled() else "disabled"
+        self._primary_button.configure(text=label, state=state)
 
     def _on_save(self) -> None:
         if not self._validate_fields():
             return
-        profile = ConnectionProfile(
-            name=self.name_var.get().strip(),
-            endpoint_url=self.endpoint_var.get().strip(),
-            access_key=self.access_key_var.get().strip(),
-            secret_key=self.secret_key_var.get().strip(),
-        )
-        self.result = {"action": self._primary_action, "profile": profile, "original_name": self.original_name}
+        action = self._resolve_primary_action()
+        if action == "connect":
+            target_name = self.original_name or self.name_var.get().strip()
+            self.result = {"action": "connect", "name": target_name}
+        else:
+            profile = ConnectionProfile(
+                name=self.name_var.get().strip(),
+                endpoint_url=self.endpoint_var.get().strip(),
+                access_key=self.access_key_var.get().strip(),
+                secret_key=self.secret_key_var.get().strip(),
+            )
+            self.result = {"action": action, "profile": profile, "original_name": self.original_name}
         self.top.destroy()
 
     def _on_delete(self) -> None:
