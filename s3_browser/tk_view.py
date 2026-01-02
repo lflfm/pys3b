@@ -342,6 +342,7 @@ class S3BrowserApp:
 
         folder_menu = tk.Menu(self.root, tearoff=0)
         folder_menu.add_command(label=self._upload_menu_label, command=self.upload_file)
+        folder_menu.add_command(label="Refresh", command=self._refresh_selected_folder)
         folder_menu.add_command(label="Get Signed URL", command=self._open_signed_url_for_selection)
         folder_menu.bind("<Unmap>", lambda _event, menu=folder_menu: self._on_context_menu_unmap(menu))
         self._folder_context_menu = folder_menu
@@ -602,6 +603,7 @@ class S3BrowserApp:
                 self._app_settings.last_connection = selected
                 self._settings_storage.save(self._app_settings)
         self._update_bucket_menu(buckets)
+        self._refresh_connection_menu()
         self._set_status("Connected. Buckets loaded.")
 
     def _auto_connect_if_enabled(self) -> None:
@@ -770,6 +772,46 @@ class S3BrowserApp:
         state = "normal" if self.controller.is_connected else "disabled"
         if self._file_menu:
             self._file_menu.entryconfig(self._signed_url_menu_label, state=state)
+
+    def _refresh_selected_folder(self) -> None:
+        if not self.controller.is_connected:
+            messagebox.showerror("Error", "Please connect first")
+            return
+        selected = self._get_selected_node()
+        if not selected:
+            return
+        node_id, node_info = selected
+        node_type = node_info.get("type")
+        if node_type not in {"bucket", "prefix"}:
+            return
+        if node_info.get("loading"):
+            return
+        bucket = node_info.get("bucket")
+        if not bucket:
+            return
+        prefix = node_info.get("prefix", "") if node_type == "prefix" else ""
+        node_info["loading"] = True
+        thread = threading.Thread(
+            target=self._refresh_folder_thread,
+            args=(node_id, bucket, prefix),
+            daemon=True,
+        )
+        thread.start()
+
+    def _refresh_folder_thread(self, node_id: str, bucket: str, prefix: str) -> None:
+        try:
+            listing = self.controller.list_objects(
+                bucket_name=bucket,
+                max_keys=self._current_max_keys,
+                prefix=prefix,
+            )
+            self.root.after(0, lambda: self._render_prefix_listing(node_id, listing))
+        except (ClientError, BotoCoreError) as exc:
+            error_message = str(exc)
+            self.root.after(0, lambda msg=error_message: self._handle_prefix_error(node_id, msg))
+        except Exception as exc:  # pragma: no cover - defensive
+            message = f"Unexpected error: {exc}"
+            self.root.after(0, lambda msg=message: self._handle_prefix_error(node_id, msg))
 
     def _get_selected_node(self) -> tuple[str, dict[str, object]] | None:
         selection = self.results_tree.focus()
@@ -964,7 +1006,7 @@ class S3BrowserApp:
         self._refresh_load_more_node(parent_id, listing)
         return objects_added, prefixes_added
 
-    def _insert_prefix_node(self, parent_id: str, bucket: str, prefix: str, base_prefix: str) -> None:
+    def _insert_prefix_node(self, parent_id: str, bucket: str, prefix: str, base_prefix: str) -> str:
         label = self._relative_name(prefix, base_prefix)
         node_id = self.results_tree.insert(parent_id, "end", text=label, open=False)
         self.results_tree.insert(node_id, "end", text="Loading...")
@@ -975,11 +1017,119 @@ class S3BrowserApp:
             "loaded": False,
             "loading": False,
         }
+        return node_id
 
     def _insert_file_node(self, parent_id: str, bucket: str, key: str, base_prefix: str) -> None:
         label = self._relative_name(key, base_prefix)
         node_id = self.results_tree.insert(parent_id, "end", text=label)
         self._node_state[node_id] = {"type": "object", "bucket": bucket, "key": key}
+
+    def _find_node(self, *, node_type: str, bucket: str, key: str | None = None, prefix: str | None = None) -> str | None:
+        for node_id, info in self._node_state.items():
+            if info.get("type") != node_type or info.get("bucket") != bucket:
+                continue
+            if key is not None and info.get("key") != key:
+                continue
+            if prefix is not None and info.get("prefix") != prefix:
+                continue
+            if self.results_tree.exists(node_id):
+                return node_id
+        return None
+
+    def _node_has_content(self, node_id: str) -> bool:
+        for child in self.results_tree.get_children(node_id):
+            if child in self._node_state:
+                return True
+        return False
+
+    def _remove_placeholder_children(self, parent_id: str) -> None:
+        placeholders = {"(No objects)", "(Empty)"}
+        for child in list(self.results_tree.get_children(parent_id)):
+            if child in self._node_state:
+                continue
+            text = self.results_tree.item(child, "text")
+            if text in placeholders:
+                self.results_tree.delete(child)
+
+    def _prune_empty_parents(self, node_id: str) -> None:
+        current = node_id
+        while current:
+            node_info = self._node_state.get(current)
+            if not node_info:
+                return
+            node_type = node_info.get("type")
+            if node_type == "bucket":
+                if self._node_has_content(current):
+                    return
+                self._remove_placeholder_children(current)
+                self.results_tree.insert(current, "end", text="(No objects)")
+                return
+            if node_type != "prefix":
+                return
+            if self._node_has_content(current):
+                return
+            parent_id = self.results_tree.parent(current)
+            self._delete_subtree(current)
+            current = parent_id
+
+    def _remove_object_from_tree(self, bucket: str, key: str) -> bool:
+        node_id = self._find_node(node_type="object", bucket=bucket, key=key)
+        if not node_id:
+            return False
+        parent_id = self.results_tree.parent(node_id)
+        self._delete_subtree(node_id)
+        if parent_id:
+            self._prune_empty_parents(parent_id)
+        self._refresh_selection_controls()
+        return True
+
+    def _ensure_prefix_chain(self, bucket_id: str, bucket: str, prefix: str) -> tuple[str | None, bool]:
+        segments = [segment for segment in prefix.strip("/").split("/") if segment]
+        current_parent = bucket_id
+        current_prefix = ""
+        created = False
+        for segment in segments:
+            current_prefix = f"{current_prefix}{segment}/"
+            existing = self._find_node(node_type="prefix", bucket=bucket, prefix=current_prefix)
+            if existing:
+                current_parent = existing
+                continue
+            parent_info = self._node_state.get(current_parent, {})
+            if parent_info.get("type") == "prefix" and not parent_info.get("loaded"):
+                return None, True
+            base_prefix = parent_info.get("prefix", "")
+            current_parent = self._insert_prefix_node(current_parent, bucket, current_prefix, base_prefix)
+            created = True
+        return current_parent, created
+
+    def _add_object_to_tree(self, bucket: str, key: str) -> bool:
+        if bucket != self.bucket_var.get():
+            return False
+        bucket_id = self._find_node(node_type="bucket", bucket=bucket)
+        if not bucket_id:
+            return False
+        if self._find_node(node_type="object", bucket=bucket, key=key):
+            return True
+        prefix = ""
+        if "/" in key:
+            prefix = f"{key.rsplit('/', 1)[0]}/"
+        parent_id = bucket_id
+        if prefix:
+            prefix_id, created = self._ensure_prefix_chain(bucket_id, bucket, prefix)
+            if not prefix_id:
+                return False
+            prefix_info = self._node_state.get(prefix_id, {})
+            if not prefix_info.get("loaded") or created:
+                return True
+            parent_id = prefix_id
+        base_prefix = ""
+        parent_info = self._node_state.get(parent_id, {})
+        if parent_info.get("type") == "prefix":
+            base_prefix = parent_info.get("prefix", "")
+        self._remove_placeholder_children(parent_id)
+        self._insert_file_node(parent_id, bucket, key, base_prefix)
+        self._refresh_selection_controls()
+        return True
 
     def _refresh_load_more_node(self, parent_id: str, listing: BucketListing) -> None:
         self._remove_load_more_nodes(parent_id)
@@ -1140,7 +1290,10 @@ class S3BrowserApp:
 
         objects_added, prefixes_added = self._render_listing_contents(node_id, listing)
         if not (objects_added or prefixes_added):
-            self.results_tree.insert(node_id, "end", text="(Empty)")
+            placeholder = "(Empty)"
+            if node_info.get("type") == "bucket":
+                placeholder = "(No objects)"
+            self.results_tree.insert(node_id, "end", text=placeholder)
         node_info["loaded"] = True
         node_info["loading"] = False
         prefix_label = listing.prefix or "/"
@@ -1369,7 +1522,7 @@ class S3BrowserApp:
     def _handle_delete_success(self, bucket: str, key: str) -> None:
         messagebox.showinfo("Delete Complete", f"Deleted s3://{bucket}/{key}")
         self.status_var.set(f"Deleted {key} from {bucket}")
-        self._schedule_object_refresh()
+        self._remove_object_from_tree(bucket, key)
 
     def _handle_delete_error(self, key: str, message: str) -> None:
         self._show_error("Delete Error", f"Error deleting {key}: {message}")
@@ -1400,7 +1553,7 @@ class S3BrowserApp:
         self._close_transfer_dialog(dialog)
         messagebox.showinfo("Upload Complete", f"Uploaded to s3://{bucket}/{key}")
         self.status_var.set(f"Uploaded {key} to {bucket}")
-        self._schedule_object_refresh()
+        self._add_object_to_tree(bucket, key)
 
     def _handle_upload_error(self, key: str, message: str, dialog: "TransferDialog" | None = None) -> None:
         self._close_transfer_dialog(dialog)
