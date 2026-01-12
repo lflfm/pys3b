@@ -111,10 +111,12 @@ class S3BrowserPresenter:
                 buckets = self._controller.connect_with_profile(profile_name)
             except (BotoCoreError, ClientError) as exc:
                 LOGGER.exception("Connection error for profile '%s'", profile_name)
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
                 LOGGER.exception("Unexpected connection error for profile '%s'", profile_name)
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             else:
                 LOGGER.debug("Connected using profile '%s' (%d buckets)", profile_name, len(buckets))
                 self._dispatch(lambda: on_success(buckets))
@@ -137,10 +139,12 @@ class S3BrowserPresenter:
                 buckets = self._controller.refresh_buckets()
             except (BotoCoreError, ClientError) as exc:
                 LOGGER.exception("Bucket refresh error")
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
                 LOGGER.exception("Unexpected bucket refresh error")
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             else:
                 LOGGER.debug("Bucket refresh returned %d bucket(s)", len(buckets))
                 self._dispatch(lambda: on_success(buckets))
@@ -174,10 +178,12 @@ class S3BrowserPresenter:
                 )
             except (BotoCoreError, ClientError) as exc:
                 LOGGER.exception("List objects error for bucket '%s'", bucket_name)
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
                 LOGGER.exception("Unexpected list objects error for bucket '%s'", bucket_name)
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             else:
                 LOGGER.debug(
                     "Listed %d page(s) for bucket '%s'",
@@ -203,9 +209,11 @@ class S3BrowserPresenter:
             try:
                 details = self._controller.get_object_details(bucket_name=bucket_name, key=key)
             except (BotoCoreError, ClientError) as exc:
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             else:
                 self._dispatch(lambda: on_success(details))
 
@@ -223,9 +231,11 @@ class S3BrowserPresenter:
             try:
                 self._controller.delete_object(bucket_name=bucket_name, key=key)
             except (BotoCoreError, ClientError) as exc:
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             else:
                 self._dispatch(on_success)
 
@@ -259,13 +269,16 @@ class S3BrowserPresenter:
                 )
             except TransferCancelledError as exc:
                 if on_cancelled:
-                    self._dispatch(lambda: on_cancelled(_format_error(exc)))
+                    message = _format_error(exc)
+                    self._dispatch(lambda msg=message: on_cancelled(msg))
             except (BotoCoreError, ClientError) as exc:
                 if on_error:
-                    self._dispatch(lambda: on_error(_format_error(exc)))
+                    message = _format_error(exc)
+                    self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
                 if on_error:
-                    self._dispatch(lambda: on_error(_format_error(exc)))
+                    message = _format_error(exc)
+                    self._dispatch(lambda msg=message: on_error(msg))
             else:
                 if on_success:
                     self._dispatch(on_success)
@@ -309,13 +322,16 @@ class S3BrowserPresenter:
                 )
             except TransferCancelledError as exc:
                 if on_cancelled:
-                    self._dispatch(lambda: on_cancelled(_format_error(exc)))
+                    message = _format_error(exc)
+                    self._dispatch(lambda msg=message: on_cancelled(msg))
             except (BotoCoreError, ClientError) as exc:
                 if on_error:
-                    self._dispatch(lambda: on_error(_format_error(exc)))
+                    message = _format_error(exc)
+                    self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
                 if on_error:
-                    self._dispatch(lambda: on_error(_format_error(exc)))
+                    message = _format_error(exc)
+                    self._dispatch(lambda msg=message: on_error(msg))
             else:
                 if on_success:
                     self._dispatch(on_success)
@@ -352,9 +368,11 @@ class S3BrowserPresenter:
                     max_size=max_size,
                 )
             except (BotoCoreError, ClientError) as exc:
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             except Exception as exc:
-                self._dispatch(lambda: on_error(_format_error(exc)))
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
             else:
                 self._dispatch(lambda: on_success(result))
 
