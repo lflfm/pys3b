@@ -44,6 +44,52 @@ class NodeInfo:
     parent_id: str | None = None
 
 
+class UploadDropTreeView(QtWidgets.QTreeView):
+    """Tree view that accepts file drops for uploading."""
+
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget | None = None,
+        *,
+        drop_allowed: Callable[[], bool],
+        handle_drop: Callable[[list[QtCore.QUrl], QtCore.QModelIndex], None],
+    ) -> None:
+        super().__init__(parent)
+        self._drop_allowed = drop_allowed
+        self._handle_drop = handle_drop
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
+
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
+        if self._can_accept(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event: QtGui.QDragMoveEvent) -> None:
+        if self._can_accept(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:
+        if not self._can_accept(event):
+            event.ignore()
+            return
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        target_index = self.indexAt(pos)
+        urls = list(event.mimeData().urls() or [])
+        self._handle_drop(urls, target_index)
+        event.acceptProposedAction()
+
+    def _can_accept(self, event: QtGui.QDropEvent) -> bool:
+        if not self._drop_allowed():
+            return False
+        mime = event.mimeData()
+        return bool(mime and mime.hasUrls())
+
+
 class S3BrowserWindow(QtWidgets.QMainWindow):
     """Main window for the S3 browser UI."""
 
@@ -134,7 +180,11 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         bucket_row.addWidget(self.upload_button)
         layout.addLayout(bucket_row)
 
-        self.results_tree = QtWidgets.QTreeView(self)
+        self.results_tree = UploadDropTreeView(
+            self,
+            drop_allowed=self._allow_tree_drop,
+            handle_drop=self._handle_tree_drop,
+        )
         self.results_tree.setHeaderHidden(True)
         self.results_tree.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.results_tree.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
@@ -531,6 +581,62 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         if info.node_type in {"prefix", "bucket"}:
             return info.bucket, info.prefix or ""
         return None
+
+    def _get_upload_target_from_index(self, index: QtCore.QModelIndex) -> tuple[str, str] | None:
+        if index.isValid():
+            item = self._model.itemFromIndex(index)
+            if item:
+                node_id = item.data(NODE_ID_ROLE)
+                if node_id:
+                    node_info = self._node_state.get(node_id)
+                    if node_info:
+                        return self._get_upload_target_for_node(node_info)
+        if self._selected_bucket:
+            return self._selected_bucket, ""
+        return None
+
+    def _get_upload_target_for_node(self, info: NodeInfo) -> tuple[str, str] | None:
+        if info.node_type == "object":
+            if not info.key:
+                return info.bucket, ""
+            prefix = os.path.dirname(info.key)
+            return info.bucket, f"{prefix}/" if prefix else ""
+        if info.node_type == "prefix":
+            return info.bucket, info.prefix or ""
+        if info.node_type == "bucket":
+            return info.bucket, ""
+        return None
+
+    def _allow_tree_drop(self) -> bool:
+        return bool(
+            self.presenter.is_connected
+            and not self._operation_in_progress
+        )
+
+    def _handle_tree_drop(self, urls: list[QtCore.QUrl], index: QtCore.QModelIndex) -> None:
+        selection = self._get_upload_target_from_index(index)
+        if not selection:
+            self._show_error("Upload Error", "Please select a bucket or folder")
+            return
+        bucket, prefix = selection
+        file_paths = []
+        for url in urls:
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            if os.path.isfile(path):
+                file_paths.append(path)
+        if not file_paths:
+            self._show_error("Upload Error", "Only local files can be uploaded.")
+            return
+        if len(file_paths) == 1:
+            self._upload_path_with_dialog(bucket, prefix, file_paths[0])
+            return
+        prompt = f"Upload {len(file_paths)} files to s3://{bucket}/{prefix}?"
+        confirm = QtWidgets.QMessageBox.question(self, "Upload Files", prompt)
+        if confirm != QtWidgets.QMessageBox.Yes:
+            return
+        self._upload_files_sequential(bucket, prefix, file_paths)
 
     def _get_selected_object_path(self) -> tuple[str, str] | None:
         selected = self._get_selected_node()
@@ -1064,6 +1170,9 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         source_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select file to upload")
         if not source_path:
             return
+        self._upload_path_with_dialog(bucket, prefix, source_path)
+
+    def _upload_path_with_dialog(self, bucket: str, prefix: str, source_path: str) -> None:
         try:
             source_size = os.path.getsize(source_path)
         except OSError:
@@ -1080,7 +1189,81 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             return
         key = result["key"]
         source_path = result["source_path"]
+        if not self._confirm_overwrite_if_needed(bucket, key):
+            return
         self._upload_object(bucket, key, source_path)
+
+    def _upload_files_sequential(self, bucket: str, prefix: str, source_paths: list[str]) -> None:
+        queue = [path for path in source_paths if path]
+        if not queue:
+            return
+        cancelled = {"value": False}
+        total_count = len(queue)
+
+        def start_next() -> None:
+            if cancelled["value"]:
+                return
+            if not queue:
+                return
+            source_path = queue.pop(0)
+            filename = os.path.basename(source_path)
+            try:
+                key = compose_s3_key(prefix, filename)
+            except ValueError:
+                self._show_error("Upload Error", f"Cannot upload unnamed file: {source_path}")
+                start_next()
+                return
+            if not self._confirm_overwrite_if_needed(bucket, key):
+                start_next()
+                return
+            remaining = len(queue)
+            position = total_count - remaining
+            dialog = self._start_transfer_dialog(
+                title="Uploading",
+                description=f"Uploading {filename} ({position}/{total_count}) to s3://{bucket}/{key}",
+            )
+
+            def handle_success() -> None:
+                self._close_transfer_dialog(dialog)
+                if not self._add_object_to_tree(bucket, key):
+                    self._schedule_object_refresh()
+                self._set_status(f"Uploaded {key} to {bucket}.")
+
+            def handle_error(message: str) -> None:
+                self._close_transfer_dialog(dialog)
+                self._show_error("Upload Error", f"Error uploading {key}: {message}")
+
+            def handle_cancelled(message: str) -> None:
+                cancelled["value"] = True
+                queue.clear()
+                self._handle_transfer_cancelled(dialog, message)
+
+            self.presenter.upload_object(
+                bucket_name=bucket,
+                key=key,
+                source_path=source_path,
+                multipart_threshold=self._settings.upload_multipart_threshold,
+                multipart_chunk_size=self._settings.upload_chunk_size,
+                max_concurrency=self._settings.upload_max_concurrency,
+                on_progress=lambda total: self._report_transfer_progress(dialog, total),
+                cancel_requested=dialog.cancel_requested,
+                on_success=handle_success,
+                on_error=handle_error,
+                on_cancelled=handle_cancelled,
+                on_done=start_next,
+            )
+
+        start_next()
+
+    def _confirm_overwrite_if_needed(self, bucket: str, key: str) -> bool:
+        if self._find_node(node_type="object", bucket=bucket, key=key):
+            confirm = QtWidgets.QMessageBox.question(
+                self,
+                "Overwrite Object",
+                f"s3://{bucket}/{key} already exists. Overwrite?",
+            )
+            return confirm == QtWidgets.QMessageBox.Yes
+        return True
 
     def _download_object(self, bucket: str, key: str, details: ObjectDetails | None = None) -> None:
         filename = key.rsplit("/", 1)[-1]
