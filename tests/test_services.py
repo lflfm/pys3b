@@ -32,6 +32,7 @@ class FakeS3Client:
         self.download_file_errors = download_errors or {}
         self.upload_file_calls = []
         self.upload_file_errors = upload_errors or {}
+        self.upload_file_configs = []
         self.delete_object_calls = []
         self.delete_object_errors = delete_errors or {}
         self.presigned_url_outputs = presigned_url_outputs or {}
@@ -72,8 +73,9 @@ class FakeS3Client:
             for amount in self.transfer_sequences.get(("download", bucket, key), []):
                 Callback(amount)
 
-    def upload_file(self, filename, bucket, key, Callback=None, ExtraArgs=None):
+    def upload_file(self, filename, bucket, key, Callback=None, ExtraArgs=None, Config=None):
         self.upload_file_calls.append((filename, bucket, key))
+        self.upload_file_configs.append(Config)
         error = self.upload_file_errors.get((bucket, key))
         if isinstance(error, Exception):
             raise error
@@ -358,6 +360,7 @@ class S3BrowserServiceTests(unittest.TestCase):
             [("/tmp/local.txt", "bucket-one", "folder/a.txt")],
             fake_client.upload_file_calls,
         )
+        self.assertIsNotNone(fake_client.upload_file_configs[0])
 
     def test_upload_object_reports_progress(self):
         transfer_sequences = {("upload", "bucket-one", "folder/a.txt"): [512, 512, 256]}

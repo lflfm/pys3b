@@ -7,6 +7,12 @@ try:  # pragma: no cover - optional dependency for tests
 except ModuleNotFoundError:  # pragma: no cover - handled lazily
     boto3 = None
 try:  # pragma: no cover - optional dependency for tests
+    from boto3.s3.transfer import TransferConfig
+except ModuleNotFoundError:  # pragma: no cover - fallback for local testing
+    class TransferConfig:  # type: ignore[no-redef]
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+try:  # pragma: no cover - optional dependency for tests
     from botocore.client import Config
     from botocore.exceptions import BotoCoreError, ClientError
 except ModuleNotFoundError:  # pragma: no cover - lightweight fallbacks
@@ -28,6 +34,10 @@ class TransferCancelledError(RuntimeError):
 
 
 PAGE_SIZE = 50
+DEFAULT_MULTIPART_THRESHOLD = 8 * 1024 * 1024
+DEFAULT_MULTIPART_CHUNK_SIZE = 8 * 1024 * 1024
+DEFAULT_MAX_CONCURRENCY = 10
+
 
 class S3BrowserService:
     """Encapsulates S3 listing logic independent of any UI technology."""
@@ -248,6 +258,9 @@ class S3BrowserService:
         bucket_name: str,
         key: str,
         source_path: str,
+        multipart_threshold: int | None = None,
+        multipart_chunk_size: int | None = None,
+        max_concurrency: int | None = None,
         progress_callback: Optional[Callable[[int], None]] = None,
         cancel_requested: Optional[Callable[[], bool]] = None,
     ) -> None:
@@ -255,11 +268,26 @@ class S3BrowserService:
 
         client = self._create_client(endpoint_url, access_key, secret_key)
         callback = self._build_transfer_callback(progress_callback, cancel_requested)
+        threshold_value = multipart_threshold if multipart_threshold is not None else DEFAULT_MULTIPART_THRESHOLD
+        if threshold_value <= 0:
+            threshold_value = DEFAULT_MULTIPART_THRESHOLD
+        chunk_value = multipart_chunk_size if multipart_chunk_size is not None else DEFAULT_MULTIPART_CHUNK_SIZE
+        if chunk_value <= 0:
+            chunk_value = DEFAULT_MULTIPART_CHUNK_SIZE
+        concurrency_value = max_concurrency if max_concurrency is not None else DEFAULT_MAX_CONCURRENCY
+        if concurrency_value <= 0:
+            concurrency_value = DEFAULT_MAX_CONCURRENCY
+        transfer_config = TransferConfig(
+            multipart_threshold=threshold_value,
+            multipart_chunksize=chunk_value,
+            max_concurrency=concurrency_value,
+        )
         client.upload_file(
             source_path,
             bucket_name,
             key,
             Callback=callback,
+            Config=transfer_config,
             # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/customizations/s3.html#boto3.s3.transfer.S3Transfer.ALLOWED_UPLOAD_ARGS
             ExtraArgs={"ChecksumAlgorithm": "SHA256",
                         "Metadata": {"pys3b_upload": "true"},

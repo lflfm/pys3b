@@ -17,8 +17,8 @@ from .services import TransferCancelledError
 from .settings import AppSettings, SettingsStorage
 
 DIST_NAME = "pys3b"
-SIZE_UNITS = ("B", "KB", "MB")
-SIZE_UNIT_FACTORS = {"B": 1, "KB": 1024, "MB": 1024 * 1024}
+SIZE_UNITS = ("B", "KB", "MB", "GB")
+SIZE_UNIT_FACTORS = {"B": 1, "KB": 1024, "MB": 1024 * 1024, "GB": 1024 * 1024 * 1024}
 
 @dataclass(frozen=True)
 class PackageInfo:
@@ -68,7 +68,7 @@ def _load_package_info() -> PackageInfo:
 def _split_size_bytes(size_bytes: int) -> tuple[str, str]:
     if size_bytes <= 0:
         return ("1", "MB")
-    for unit in ("MB", "KB"):
+    for unit in ("GB", "MB", "KB"):
         factor = SIZE_UNIT_FACTORS[unit]
         if size_bytes >= factor and size_bytes % factor == 0:
             return (str(size_bytes // factor), unit)
@@ -426,19 +426,36 @@ class S3BrowserApp:
         frame = ttk.Frame(window, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
 
+        notebook = ttk.Notebook(frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        bucket_tab = ttk.Frame(notebook, padding=12)
+        signed_url_tab = ttk.Frame(notebook, padding=12)
+        upload_tab = ttk.Frame(notebook, padding=12)
+        notebook.add(bucket_tab, text="Bucket fetch")
+        notebook.add(signed_url_tab, text="Signed URL")
+        notebook.add(upload_tab, text="Upload")
+
         temp_var = tk.StringVar(value=self.max_keys_var.get())
         default_size_value, default_size_unit = _split_size_bytes(self._app_settings.default_post_max_size)
+        threshold_value, threshold_unit = _split_size_bytes(self._app_settings.upload_multipart_threshold)
+        chunk_value, chunk_unit = _split_size_bytes(self._app_settings.upload_chunk_size)
         size_var = tk.StringVar(value=default_size_value)
         size_unit_var = tk.StringVar(value=default_size_unit)
+        threshold_var = tk.StringVar(value=threshold_value)
+        threshold_unit_var = tk.StringVar(value=threshold_unit)
+        chunk_var = tk.StringVar(value=chunk_value)
+        chunk_unit_var = tk.StringVar(value=chunk_unit)
+        concurrency_var = tk.StringVar(value=str(self._app_settings.upload_max_concurrency))
         remember_bucket_var = tk.BooleanVar(value=self._app_settings.remember_last_bucket)
 
-        ttk.Label(frame, text="Fetch limit:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
-        entry = ttk.Entry(frame, textvariable=temp_var, width=10, justify="right")
+        ttk.Label(bucket_tab, text="Fetch limit:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
+        entry = ttk.Entry(bucket_tab, textvariable=temp_var, width=10, justify="right")
         entry.grid(row=0, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
 
-        ttk.Label(frame, text="Default POST max size:").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
-        size_frame = ttk.Frame(frame)
-        size_frame.grid(row=1, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
+        ttk.Label(signed_url_tab, text="Default POST max size:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
+        size_frame = ttk.Frame(signed_url_tab)
+        size_frame.grid(row=0, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
         size_entry = ttk.Entry(size_frame, textvariable=size_var, width=10, justify="right")
         size_entry.grid(row=0, column=0, sticky=tk.W)
         size_unit = ttk.Combobox(
@@ -450,17 +467,50 @@ class S3BrowserApp:
         )
         size_unit.grid(row=0, column=1, sticky=tk.W, padx=(6, 0))
 
+        ttk.Label(upload_tab, text="Upload multipart threshold:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
+        threshold_frame = ttk.Frame(upload_tab)
+        threshold_frame.grid(row=0, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
+        threshold_entry = ttk.Entry(threshold_frame, textvariable=threshold_var, width=10, justify="right")
+        threshold_entry.grid(row=0, column=0, sticky=tk.W)
+        threshold_unit_entry = ttk.Combobox(
+            threshold_frame,
+            textvariable=threshold_unit_var,
+            values=SIZE_UNITS,
+            state="readonly",
+            width=6,
+        )
+        threshold_unit_entry.grid(row=0, column=1, sticky=tk.W, padx=(6, 0))
+
+        ttk.Label(upload_tab, text="Upload chunk size:").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
+        chunk_frame = ttk.Frame(upload_tab)
+        chunk_frame.grid(row=1, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
+        chunk_entry = ttk.Entry(chunk_frame, textvariable=chunk_var, width=10, justify="right")
+        chunk_entry.grid(row=0, column=0, sticky=tk.W)
+        chunk_unit_entry = ttk.Combobox(
+            chunk_frame,
+            textvariable=chunk_unit_var,
+            values=SIZE_UNITS,
+            state="readonly",
+            width=6,
+        )
+        chunk_unit_entry.grid(row=0, column=1, sticky=tk.W, padx=(6, 0))
+
+        ttk.Label(upload_tab, text="Upload max concurrency:").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
+        concurrency_entry = ttk.Entry(upload_tab, textvariable=concurrency_var, width=10, justify="right")
+        concurrency_entry.grid(row=2, column=1, sticky=tk.W, pady=(0, 10), padx=(5, 0))
+
         remember_checkbox = ttk.Checkbutton(
-            frame,
+            bucket_tab,
             text="Remember last active connection & bucket",
             variable=remember_bucket_var,
             onvalue=True,
             offvalue=False,
         )
-        remember_checkbox.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        remember_checkbox.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=3, column=0, columnspan=2, pady=(5, 0), sticky=tk.E)
+        buttons.pack(fill=tk.X, pady=(10, 0))
+        buttons.columnconfigure(0, weight=1)
 
         def save_settings() -> None:
             try:
@@ -475,8 +525,30 @@ class S3BrowserApp:
             if max_size is None:
                 messagebox.showerror("Error", "Default POST max size must be a whole number greater than zero")
                 return
+            multipart_threshold = _parse_size_bytes(threshold_var.get(), threshold_unit_var.get())
+            if multipart_threshold is None:
+                messagebox.showerror("Error", "Upload multipart threshold must be a whole number greater than zero")
+                return
+            chunk_size = _parse_size_bytes(chunk_var.get(), chunk_unit_var.get())
+            if chunk_size is None:
+                messagebox.showerror("Error", "Upload chunk size must be a whole number greater than zero")
+                return
+            if chunk_size < 5 * 1024 * 1024:
+                messagebox.showerror("Error", "Upload chunk size must be at least 5 MB")
+                return
+            try:
+                max_concurrency = int(concurrency_var.get().strip())
+            except ValueError:
+                messagebox.showerror("Error", "Upload max concurrency must be a whole number")
+                return
+            if max_concurrency <= 0:
+                messagebox.showerror("Error", "Upload max concurrency must be greater than zero")
+                return
             self._update_fetch_limit(max_keys, trigger_refresh=False)
             self._app_settings.default_post_max_size = max_size
+            self._app_settings.upload_multipart_threshold = multipart_threshold
+            self._app_settings.upload_chunk_size = chunk_size
+            self._app_settings.upload_max_concurrency = max_concurrency
             self._app_settings.remember_last_bucket = bool(remember_bucket_var.get())
             if self._app_settings.remember_last_bucket:
                 current_bucket = self.bucket_var.get().strip()
@@ -488,8 +560,9 @@ class S3BrowserApp:
             self._settings_storage.save(self._app_settings)
             self._close_settings_window()
 
-        ttk.Button(buttons, text="Save", command=save_settings).grid(row=0, column=0, padx=(0, 5))
-        ttk.Button(buttons, text="Cancel", command=self._close_settings_window).grid(row=0, column=1)
+        ttk.Label(buttons, text="").grid(row=0, column=0, sticky=tk.W)
+        ttk.Button(buttons, text="Save", command=save_settings).grid(row=0, column=1, padx=(0, 5))
+        ttk.Button(buttons, text="Cancel", command=self._close_settings_window).grid(row=0, column=2)
 
         entry.focus()
         self._settings_window = window
@@ -1536,6 +1609,9 @@ class S3BrowserApp:
                 bucket_name=bucket,
                 key=key,
                 source_path=source_path,
+                multipart_threshold=self._app_settings.upload_multipart_threshold,
+                multipart_chunk_size=self._app_settings.upload_chunk_size,
+                max_concurrency=self._app_settings.upload_max_concurrency,
                 progress_callback=progress,
                 cancel_requested=dialog.cancel_requested,
             )
