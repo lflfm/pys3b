@@ -2163,6 +2163,9 @@ class SettingsDialog(QtWidgets.QDialog):
         bucket_layout = QtWidgets.QFormLayout(bucket_tab)
         self.fetch_limit_edit = QtWidgets.QLineEdit(str(settings.fetch_limit))
         bucket_layout.addRow("Fetch limit:", self.fetch_limit_edit)
+        self.remember_checkbox = QtWidgets.QCheckBox("Remember last bucket/connection")
+        self.remember_checkbox.setChecked(settings.remember_last_bucket)
+        bucket_layout.addRow(self.remember_checkbox)
 
         signed_tab = QtWidgets.QWidget()
         signed_layout = QtWidgets.QFormLayout(signed_tab)
@@ -2201,10 +2204,6 @@ class SettingsDialog(QtWidgets.QDialog):
 
         self.concurrency_edit = QtWidgets.QLineEdit(str(settings.upload_max_concurrency))
         upload_layout.addRow("Upload max concurrency:", self.concurrency_edit)
-
-        self.remember_checkbox = QtWidgets.QCheckBox("Remember last bucket/connection")
-        self.remember_checkbox.setChecked(settings.remember_last_bucket)
-        upload_layout.addRow(self.remember_checkbox)
 
         tabs.addTab(bucket_tab, "Bucket")
         tabs.addTab(signed_tab, "Signed URL")
