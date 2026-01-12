@@ -1,5 +1,5 @@
 from __future__ import annotations
-"""Controller layer for the Tkinter S3 browser view."""
+"""Controller layer for the S3 browser application."""
 
 from typing import Callable, Optional
 
