@@ -134,7 +134,7 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         self.upload_action.setEnabled(False)
 
         self.download_action = self.file_menu.addAction("Download File...")
-        self.download_action.triggered.connect(self._download_selected_object)
+        self.download_action.triggered.connect(self._download_selected_objects)
         self.download_action.setEnabled(False)
 
         self.signed_url_action = self.file_menu.addAction("Generate Signed URL...")
@@ -178,6 +178,10 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         self.upload_button.clicked.connect(self.upload_file)
         self.upload_button.setEnabled(False)
         bucket_row.addWidget(self.upload_button)
+        self.download_button = QtWidgets.QPushButton("Download")
+        self.download_button.clicked.connect(self._download_selected_objects)
+        self.download_button.setEnabled(False)
+        bucket_row.addWidget(self.download_button)
         layout.addLayout(bucket_row)
 
         self.results_tree = UploadDropTreeView(
@@ -187,7 +191,7 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         )
         self.results_tree.setHeaderHidden(True)
         self.results_tree.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.results_tree.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.results_tree.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.results_tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.results_tree.customContextMenuRequested.connect(self._handle_tree_right_click)
         self.results_tree.expanded.connect(self._handle_tree_open)
@@ -212,10 +216,14 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
     def _create_context_menus(self) -> None:
         self.object_menu = QtWidgets.QMenu(self)
         self.object_menu.addAction("Info", self._open_selected_object_info)
-        self.object_menu.addAction("Download", self._download_selected_object)
+        self.object_menu.addAction("Download", self._download_selected_objects)
         self.object_menu.addAction("Get Signed URL", self._open_signed_url_for_selection)
         self.object_menu.addSeparator()
-        self.object_menu.addAction("Delete", self._delete_selected_object)
+        self.object_menu.addAction("Delete", self._delete_selected_objects)
+
+        self.object_multi_menu = QtWidgets.QMenu(self)
+        self.object_multi_menu.addAction("Download", self._download_selected_objects)
+        self.object_multi_menu.addAction("Delete", self._delete_selected_objects)
 
         self.folder_menu = QtWidgets.QMenu(self)
         self.folder_menu.addAction("Upload...", self.upload_file)
@@ -514,21 +522,20 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
 
     def _set_download_controls_state(self, enabled: bool) -> None:
         self.download_action.setEnabled(enabled)
+        self.download_button.setEnabled(enabled)
 
     def _refresh_signed_url_controls(self) -> None:
         enabled = bool(self._selected_connection and self._selected_bucket and not self._operation_in_progress)
         self.signed_url_action.setEnabled(enabled)
 
     def _refresh_selection_controls(self, *_: object) -> None:
-        selected = self._get_selected_node()
-        if not selected:
+        selected_objects = self._get_selected_objects()
+        if not selected_objects:
             self._set_download_controls_state(False)
             self._set_objects_menu_state(self.presenter.is_connected and not self._operation_in_progress)
             return
-        _, node_info = selected
         self._set_objects_menu_state(self.presenter.is_connected and not self._operation_in_progress)
-        has_object = node_info.node_type == "object"
-        self._set_download_controls_state(has_object and not self._operation_in_progress)
+        self._set_download_controls_state(not self._operation_in_progress)
 
     def _refresh_selected_folder(self, *_: object) -> None:
         selected = self._get_selected_node()
@@ -568,6 +575,27 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         if not node_info:
             return None
         return node_id, node_info
+
+    def _get_selected_objects(self) -> list[tuple[str, str]]:
+        selection_model = self.results_tree.selectionModel()
+        if not selection_model:
+            return []
+        selected_indexes = selection_model.selectedRows(0)
+        seen: set[str] = set()
+        objects: list[tuple[str, str]] = []
+        for index in selected_indexes:
+            item = self._model.itemFromIndex(index)
+            if not item:
+                continue
+            node_id = item.data(NODE_ID_ROLE)
+            if not node_id or node_id in seen:
+                continue
+            seen.add(node_id)
+            info = self._node_state.get(node_id)
+            if not info or info.node_type != "object":
+                continue
+            objects.append((info.bucket, info.key or ""))
+        return objects
 
     def _get_selected_upload_target(self) -> tuple[str, str] | None:
         selected = self._get_selected_node()
@@ -667,19 +695,35 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         bucket, key = selected
         self._show_object_details(bucket, key)
 
-    def _download_selected_object(self, *_: object) -> None:
-        selected = self._get_selected_object()
-        if not selected:
+    def _download_selected_objects(self, *_: object) -> None:
+        selected_objects = self._get_selected_objects()
+        if not selected_objects:
             return
-        bucket, key = selected
-        self._download_object(bucket, key)
+        if len(selected_objects) == 1:
+            bucket, key = selected_objects[0]
+            self._download_object(bucket, key)
+            return
+        target_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select download folder")
+        if not target_dir:
+            return
+        self._download_objects_sequential(selected_objects, target_dir)
 
-    def _delete_selected_object(self, *_: object) -> None:
-        selected = self._get_selected_object()
-        if not selected:
+    def _delete_selected_objects(self, *_: object) -> None:
+        selected_objects = self._get_selected_objects()
+        if not selected_objects:
             return
-        bucket, key = selected
-        self._delete_object(bucket, key)
+        if len(selected_objects) == 1:
+            bucket, key = selected_objects[0]
+            self._delete_object(bucket, key)
+            return
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Delete Objects",
+            f"Delete {len(selected_objects)} objects?",
+        )
+        if confirm != QtWidgets.QMessageBox.Yes:
+            return
+        self._delete_objects_sequential(selected_objects)
 
     def _open_signed_url_for_selection(self, *_: object) -> None:
         selection = self._get_selected_object_path()
@@ -999,11 +1043,25 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         node_info = self._node_state.get(node_id)
         if not node_info:
             return
-        self.results_tree.setCurrentIndex(index)
+        selection_model = self.results_tree.selectionModel()
+        if selection_model:
+            if selection_model.isSelected(index):
+                selection_model.setCurrentIndex(
+                    index,
+                    QtCore.QItemSelectionModel.NoUpdate | QtCore.QItemSelectionModel.Rows,
+                )
+            else:
+                selection_model.setCurrentIndex(
+                    index,
+                    QtCore.QItemSelectionModel.ClearAndSelect | QtCore.QItemSelectionModel.Rows,
+                )
         self._refresh_selection_controls()
         menu = None
         if node_info.node_type == "object":
-            menu = self.object_menu
+            if len(self._get_selected_objects()) > 1:
+                menu = self.object_multi_menu
+            else:
+                menu = self.object_menu
         elif node_info.node_type in {"prefix", "bucket"}:
             menu = self.folder_menu
         if not menu:
@@ -1299,6 +1357,66 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             on_cancelled=handle_cancelled,
         )
 
+    def _download_objects_sequential(self, objects: list[tuple[str, str]], target_dir: str) -> None:
+        queue = [(bucket, key) for bucket, key in objects if key]
+        if not queue:
+            return
+        cancelled = {"value": False}
+        total_count = len(queue)
+        planned_paths: set[str] = set()
+
+        def start_next() -> None:
+            if cancelled["value"]:
+                return
+            if not queue:
+                self._set_status(f"Downloaded {total_count} object(s) to {target_dir}.")
+                return
+            bucket, key = queue.pop(0)
+            filename = key.rsplit("/", 1)[-1] or "download"
+            destination = self._unique_download_path(target_dir, filename, planned_paths)
+            planned_paths.add(destination)
+            position = total_count - len(queue)
+            dialog = self._start_transfer_dialog(
+                title="Downloading",
+                description=f"Downloading {position}/{total_count}: s3://{bucket}/{key}",
+            )
+
+            def handle_success() -> None:
+                self._close_transfer_dialog(dialog)
+                self._set_status(f"Downloaded {key} to {destination}.")
+
+            def handle_error(message: str) -> None:
+                self._close_transfer_dialog(dialog)
+                self._show_error("Download Error", f"Error downloading {key}: {message}")
+
+            def handle_cancelled(message: str) -> None:
+                cancelled["value"] = True
+                queue.clear()
+                self._handle_transfer_cancelled(dialog, message)
+
+            self.presenter.download_object(
+                bucket_name=bucket,
+                key=key,
+                destination=destination,
+                on_progress=lambda total: self._report_transfer_progress(dialog, total),
+                cancel_requested=dialog.cancel_requested,
+                on_success=handle_success,
+                on_error=handle_error,
+                on_cancelled=handle_cancelled,
+                on_done=start_next,
+            )
+
+        start_next()
+
+    def _unique_download_path(self, target_dir: str, filename: str, planned_paths: set[str]) -> str:
+        base, extension = os.path.splitext(filename)
+        candidate = os.path.join(target_dir, filename)
+        counter = 1
+        while candidate in planned_paths or os.path.exists(candidate):
+            candidate = os.path.join(target_dir, f"{base} ({counter}){extension}")
+            counter += 1
+        return candidate
+
     def _delete_object(self, bucket: str, key: str) -> None:
         confirm = QtWidgets.QMessageBox.question(
             self,
@@ -1322,6 +1440,36 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             on_success=handle_success,
             on_error=handle_error,
         )
+
+    def _delete_objects_sequential(self, objects: list[tuple[str, str]]) -> None:
+        queue = [(bucket, key) for bucket, key in objects if key]
+        if not queue:
+            return
+        total_count = len(queue)
+
+        def start_next() -> None:
+            if not queue:
+                self._set_status(f"Deleted {total_count} object(s).")
+                return
+            bucket, key = queue.pop(0)
+
+            def handle_success() -> None:
+                if not self._remove_object_from_tree(bucket, key):
+                    self._schedule_object_refresh()
+                start_next()
+
+            def handle_error(message: str) -> None:
+                self._show_error("Delete Error", f"Error deleting {key}: {message}")
+                start_next()
+
+            self.presenter.delete_object(
+                bucket_name=bucket,
+                key=key,
+                on_success=handle_success,
+                on_error=handle_error,
+            )
+
+        start_next()
 
     def _upload_object(self, bucket: str, key: str, source_path: str) -> None:
         dialog = self._start_transfer_dialog(
