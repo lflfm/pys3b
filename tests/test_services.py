@@ -6,6 +6,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - fallback for local testing
     from s3_browser.services import ClientError  # type: ignore
 
+from s3_browser import services
 from s3_browser.services import S3BrowserService, TransferCancelledError
 
 
@@ -384,6 +385,105 @@ class S3BrowserServiceTests(unittest.TestCase):
         )
 
         self.assertEqual([512, 1024, 1280], reported)
+
+    def test_upload_object_supports_cancel(self):
+        transfer_sequences = {("upload", "bucket-one", "folder/a.txt"): [512, 512]}
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {"bucket-one": [{"Contents": []}]},
+            transfer_sequences=transfer_sequences,
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        cancel_flag = {"value": False}
+
+        def cancel_requested():
+            return cancel_flag["value"]
+
+        def progress(total):
+            cancel_flag["value"] = True
+
+        with self.assertRaises(TransferCancelledError):
+            service.upload_object(
+                endpoint_url="https://example.com",
+                access_key="access",
+                secret_key="secret",
+                bucket_name="bucket-one",
+                key="folder/a.txt",
+                source_path="/tmp/local.txt",
+                progress_callback=progress,
+                cancel_requested=cancel_requested,
+            )
+
+    def test_upload_object_passes_transfer_config(self):
+        class FakeTransferConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        fake_client = FakeS3Client(["bucket-one"], {"bucket-one": [{"Contents": []}]})
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        original_config = services.TransferConfig
+        services.TransferConfig = FakeTransferConfig
+        try:
+            service.upload_object(
+                endpoint_url="https://example.com",
+                access_key="access",
+                secret_key="secret",
+                bucket_name="bucket-one",
+                key="folder/a.txt",
+                source_path="/tmp/local.txt",
+                multipart_threshold=1024,
+                multipart_chunk_size=2048,
+                max_concurrency=3,
+            )
+        finally:
+            services.TransferConfig = original_config
+
+        config = fake_client.upload_file_configs[0]
+        self.assertEqual(
+            {
+                "multipart_threshold": 1024,
+                "multipart_chunksize": 2048,
+                "max_concurrency": 3,
+            },
+            config.kwargs,
+        )
+
+    def test_upload_object_sanitizes_transfer_config(self):
+        class FakeTransferConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        fake_client = FakeS3Client(["bucket-one"], {"bucket-one": [{"Contents": []}]})
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        original_config = services.TransferConfig
+        services.TransferConfig = FakeTransferConfig
+        try:
+            service.upload_object(
+                endpoint_url="https://example.com",
+                access_key="access",
+                secret_key="secret",
+                bucket_name="bucket-one",
+                key="folder/a.txt",
+                source_path="/tmp/local.txt",
+                multipart_threshold=0,
+                multipart_chunk_size=-5,
+                max_concurrency=0,
+            )
+        finally:
+            services.TransferConfig = original_config
+
+        config = fake_client.upload_file_configs[0]
+        self.assertEqual(
+            {
+                "multipart_threshold": services.DEFAULT_MULTIPART_THRESHOLD,
+                "multipart_chunksize": services.DEFAULT_MULTIPART_CHUNK_SIZE,
+                "max_concurrency": services.DEFAULT_MAX_CONCURRENCY,
+            },
+            config.kwargs,
+        )
 
     def test_delete_object_removes_target_file(self):
         fake_client = FakeS3Client(["bucket-one"], {"bucket-one": [{"Contents": []}]})

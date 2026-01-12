@@ -16,6 +16,7 @@ class FakeService:
         self.object_details_calls = []
         self.object_details = ObjectDetails(bucket="bucket-one", key="file.txt")
         self.download_calls = []
+        self.upload_calls = []
 
     def list_buckets(self, *, endpoint_url: str, access_key: str, secret_key: str):
         self.list_buckets_calls.append(
@@ -93,6 +94,37 @@ class FakeService:
                 "bucket_name": bucket_name,
                 "key": key,
                 "destination": destination,
+            }
+        )
+        if progress_callback:
+            progress_callback(0)
+
+    def upload_object(
+        self,
+        *,
+        endpoint_url: str,
+        access_key: str,
+        secret_key: str,
+        bucket_name: str,
+        key: str,
+        source_path: str,
+        multipart_threshold: int | None = None,
+        multipart_chunk_size: int | None = None,
+        max_concurrency: int | None = None,
+        progress_callback=None,
+        cancel_requested=None,
+    ):
+        self.upload_calls.append(
+            {
+                "endpoint_url": endpoint_url,
+                "access_key": access_key,
+                "secret_key": secret_key,
+                "bucket_name": bucket_name,
+                "key": key,
+                "source_path": source_path,
+                "multipart_threshold": multipart_threshold,
+                "multipart_chunk_size": multipart_chunk_size,
+                "max_concurrency": max_concurrency,
             }
         )
         if progress_callback:
@@ -222,6 +254,40 @@ class S3BrowserControllerTests(unittest.TestCase):
                 "destination": "/tmp/file.txt",
             },
             self.fake_service.download_calls[0],
+        )
+
+    def test_upload_object_requires_connection(self):
+        with self.assertRaises(NotConnectedError):
+            self.controller.upload_object(
+                bucket_name="bucket-one",
+                key="file.txt",
+                source_path="/tmp/file.txt",
+            )
+
+    def test_upload_object_passes_through_params(self):
+        self.controller.connect(**self.params)
+
+        self.controller.upload_object(
+            bucket_name="bucket-one",
+            key="file.txt",
+            source_path="/tmp/file.txt",
+            multipart_threshold=123,
+            multipart_chunk_size=456,
+            max_concurrency=7,
+        )
+
+        self.assertEqual(1, len(self.fake_service.upload_calls))
+        self.assertEqual(
+            {
+                **self.params,
+                "bucket_name": "bucket-one",
+                "key": "file.txt",
+                "source_path": "/tmp/file.txt",
+                "multipart_threshold": 123,
+                "multipart_chunk_size": 456,
+                "max_concurrency": 7,
+            },
+            self.fake_service.upload_calls[0],
         )
 
     def test_loads_profiles_from_storage_on_init(self):
