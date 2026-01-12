@@ -660,11 +660,16 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         if len(file_paths) == 1:
             self._upload_path_with_dialog(bucket, prefix, file_paths[0])
             return
-        prompt = f"Upload {len(file_paths)} files to s3://{bucket}/{prefix}?"
-        confirm = QtWidgets.QMessageBox.question(self, "Upload Files", prompt)
-        if confirm != QtWidgets.QMessageBox.Yes:
+        dialog = UploadMultipleDialog(
+            self,
+            bucket=bucket,
+            file_count=len(file_paths),
+            initial_prefix=prefix,
+        )
+        result = dialog.exec_and_get()
+        if not result:
             return
-        self._upload_files_sequential(bucket, prefix, file_paths)
+        self._upload_files_sequential(bucket, result["prefix"], file_paths)
 
     def _get_selected_object_path(self) -> tuple[str, str] | None:
         selected = self._get_selected_node()
@@ -1954,6 +1959,55 @@ class UploadDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Error", "Object name cannot be empty")
             return
         self._result = {"bucket": self._bucket, "key": key, "source_path": self._source_path}
+        self.accept()
+
+
+class UploadMultipleDialog(QtWidgets.QDialog):
+    """Dialog to confirm upload destination for multiple files."""
+
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        *,
+        bucket: str,
+        file_count: int,
+        initial_prefix: str = "",
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Upload Files")
+        self.setModal(True)
+        self._result: dict | None = None
+
+        layout = QtWidgets.QVBoxLayout(self)
+        form = QtWidgets.QFormLayout()
+
+        bucket_label = QtWidgets.QLabel(f"s3://{bucket}")
+        form.addRow("Bucket:", bucket_label)
+
+        form.addRow("Files to upload:", QtWidgets.QLabel(str(file_count)))
+
+        self.prefix_edit = QtWidgets.QLineEdit(initial_prefix or "")
+        form.addRow("Destination folder:", self.prefix_edit)
+
+        layout.addLayout(form)
+
+        button_row = QtWidgets.QHBoxLayout()
+        button_row.addStretch(1)
+        upload_button = QtWidgets.QPushButton("Upload")
+        upload_button.clicked.connect(self._on_upload)
+        button_row.addWidget(upload_button)
+        cancel_button = QtWidgets.QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        button_row.addWidget(cancel_button)
+        layout.addLayout(button_row)
+
+    def exec_and_get(self) -> dict | None:
+        if self.exec() != QtWidgets.QDialog.Accepted:
+            return None
+        return self._result
+
+    def _on_upload(self) -> None:
+        self._result = {"prefix": self.prefix_edit.text()}
         self.accept()
 
 
