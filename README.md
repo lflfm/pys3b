@@ -32,12 +32,12 @@ pip install git+https://github.com/lflfm/pys3b.git
 pys3b
 ```
 
-### Using toolbox
+### Using toolbox (fedora image)
 
 ```bash
 toolbox create pys3b
 toolbox enter pys3b
-sudo dnf install -y python3 python3-pip python3-virtualenv git
+sudo dnf install -y python3 python3-pip python3-virtualenv python3-pyside6 git
 pipx install git+https://github.com/lflfm/pys3b.git
 exit
 toolbox run -c pys3b pys3b
@@ -58,12 +58,12 @@ Run tests with:
 pytest
 ```
 
-### Using toolbox
+### Using toolbox (fedora image)
 
 ```bash
 toolbox create pys3b_dev
 toolbox enter pys3b_dev
-sudo dnf install -y python3 python3-pip python3-virtualenv git
+sudo dnf install -y python3 python3-pip python3-virtualenv python3-pyside6 git
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
