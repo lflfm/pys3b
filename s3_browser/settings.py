@@ -12,6 +12,7 @@ class AppSettings:
 
     fetch_limit: int = 10
     default_post_max_size: int = 10485760
+    default_signed_url_expiry: int = 3600
     upload_multipart_threshold: int = 8 * 1024 * 1024
     upload_chunk_size: int = 8 * 1024 * 1024
     upload_max_concurrency: int = 10
@@ -37,6 +38,10 @@ class SettingsStorage:
             return AppSettings()
         fetch_limit = data.get("fetch_limit", AppSettings.fetch_limit)
         default_post_max_size = data.get("default_post_max_size", AppSettings.default_post_max_size)
+        default_signed_url_expiry = data.get(
+            "default_signed_url_expiry",
+            AppSettings.default_signed_url_expiry,
+        )
         upload_multipart_threshold = data.get(
             "upload_multipart_threshold",
             AppSettings.upload_multipart_threshold,
@@ -55,6 +60,12 @@ class SettingsStorage:
             max_size_value = AppSettings.default_post_max_size
         if max_size_value <= 0:
             max_size_value = AppSettings.default_post_max_size
+        try:
+            expiry_value = int(default_signed_url_expiry)
+        except (TypeError, ValueError):
+            expiry_value = AppSettings.default_signed_url_expiry
+        if expiry_value <= 0:
+            expiry_value = AppSettings.default_signed_url_expiry
         try:
             multipart_threshold_value = int(upload_multipart_threshold)
         except (TypeError, ValueError):
@@ -83,6 +94,7 @@ class SettingsStorage:
         return AppSettings(
             fetch_limit=fetch_value,
             default_post_max_size=max_size_value,
+            default_signed_url_expiry=expiry_value,
             upload_multipart_threshold=multipart_threshold_value,
             upload_chunk_size=chunk_size_value,
             upload_max_concurrency=max_concurrency_value,
@@ -95,6 +107,7 @@ class SettingsStorage:
         payload = {
             "fetch_limit": max(int(settings.fetch_limit), 1),
             "default_post_max_size": max(int(settings.default_post_max_size), 1),
+            "default_signed_url_expiry": max(int(settings.default_signed_url_expiry), 1),
             "upload_multipart_threshold": max(int(settings.upload_multipart_threshold), 1),
             "upload_chunk_size": max(int(settings.upload_chunk_size), 1),
             "upload_max_concurrency": max(int(settings.upload_max_concurrency), 1),

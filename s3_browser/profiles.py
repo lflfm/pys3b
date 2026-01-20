@@ -29,7 +29,7 @@ class KeychainStore:
             return ""
         try:
             return keyring.get_password(self._service_name, profile_name) or ""
-        except KeyringError:
+        except (KeyringError, Exception):
             return ""
 
     def set_secret(self, profile_name: str, secret_key: str) -> None:
@@ -40,7 +40,7 @@ class KeychainStore:
             return
         try:
             keyring.set_password(self._service_name, profile_name, secret_key)
-        except KeyringError:
+        except (KeyringError, Exception):
             return
 
     def delete_secret(self, profile_name: str) -> None:
@@ -48,7 +48,7 @@ class KeychainStore:
             return
         try:
             keyring.delete_password(self._service_name, profile_name)
-        except KeyringError:
+        except (KeyringError, Exception):
             return
 
 

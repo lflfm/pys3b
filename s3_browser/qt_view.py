@@ -13,12 +13,15 @@ from .presenter import S3BrowserPresenter
 from .profiles import ConnectionProfile
 from .settings import AppSettings
 from .ui_utils import (
+    DURATION_UNITS,
     PackageInfo,
     build_signed_url_commands,
     compose_s3_key,
     format_last_modified,
     format_size,
+    parse_duration_seconds,
     parse_size_bytes,
+    split_duration_seconds,
     split_size_bytes,
     suggest_command_filename,
 )
@@ -315,6 +318,7 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
                 self._settings = AppSettings(
                     fetch_limit=self._settings.fetch_limit,
                     default_post_max_size=self._settings.default_post_max_size,
+                    default_signed_url_expiry=self._settings.default_signed_url_expiry,
                     upload_multipart_threshold=self._settings.upload_multipart_threshold,
                     upload_chunk_size=self._settings.upload_chunk_size,
                     upload_max_concurrency=self._settings.upload_max_concurrency,
@@ -1525,6 +1529,7 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             bucket=bucket_name,
             key=key_value,
             default_max_size=self._settings.default_post_max_size,
+            default_expiry=self._settings.default_signed_url_expiry,
         )
 
         def handle_success(result: str | dict[str, dict[str, str] | str]) -> None:
@@ -2016,7 +2021,15 @@ class SignedUrlDialog(QtWidgets.QDialog):
 
     generate_requested = QtCore.Signal(dict)
 
-    def __init__(self, parent: QtWidgets.QWidget, *, bucket: str, key: str, default_max_size: int) -> None:
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        *,
+        bucket: str,
+        key: str,
+        default_max_size: int,
+        default_expiry: int,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Signed URL")
         self.setModal(True)
@@ -2072,8 +2085,15 @@ class SignedUrlDialog(QtWidgets.QDialog):
         size_layout.addWidget(self.max_size_unit)
         form.addRow("Max file size:", size_layout)
 
-        self.expires_edit = QtWidgets.QLineEdit("3600")
-        form.addRow("Expiration (seconds):", self.expires_edit)
+        expiry_value, expiry_unit = split_duration_seconds(default_expiry)
+        self.expires_edit = QtWidgets.QLineEdit(expiry_value)
+        self.expires_unit = QtWidgets.QComboBox()
+        self.expires_unit.addItems(DURATION_UNITS)
+        self.expires_unit.setCurrentText(expiry_unit)
+        expiry_layout = QtWidgets.QHBoxLayout()
+        expiry_layout.addWidget(self.expires_edit)
+        expiry_layout.addWidget(self.expires_unit)
+        form.addRow("Expiration:", expiry_layout)
 
         self.content_type_edit = QtWidgets.QLineEdit("")
         form.addRow("Content-Type (optional):", self.content_type_edit)
@@ -2146,10 +2166,9 @@ class SignedUrlDialog(QtWidgets.QDialog):
         if not key:
             QtWidgets.QMessageBox.critical(self, "Error", "Object key is required")
             return
-        try:
-            expires_in = int(self.expires_edit.text().strip())
-        except ValueError:
-            QtWidgets.QMessageBox.critical(self, "Error", "Expiration must be a number")
+        expires_in = parse_duration_seconds(self.expires_edit.text(), self.expires_unit.currentText())
+        if expires_in is None:
+            QtWidgets.QMessageBox.critical(self, "Error", "Expiration must be valid")
             return
         max_size = None
         if self._current_method() == "post":
@@ -2232,6 +2251,15 @@ class SettingsDialog(QtWidgets.QDialog):
         default_layout.addWidget(self.default_size_edit)
         default_layout.addWidget(self.default_size_unit)
         signed_layout.addRow("Default POST max size:", default_layout)
+        expiry_value, expiry_unit = split_duration_seconds(settings.default_signed_url_expiry)
+        self.default_expiry_edit = QtWidgets.QLineEdit(expiry_value)
+        self.default_expiry_unit = QtWidgets.QComboBox()
+        self.default_expiry_unit.addItems(DURATION_UNITS)
+        self.default_expiry_unit.setCurrentText(expiry_unit)
+        expiry_layout = QtWidgets.QHBoxLayout()
+        expiry_layout.addWidget(self.default_expiry_edit)
+        expiry_layout.addWidget(self.default_expiry_unit)
+        signed_layout.addRow("Default signed URL expiration:", expiry_layout)
 
         upload_tab = QtWidgets.QWidget()
         upload_layout = QtWidgets.QFormLayout(upload_tab)
@@ -2287,6 +2315,13 @@ class SettingsDialog(QtWidgets.QDialog):
         if default_post_max_size is None:
             QtWidgets.QMessageBox.critical(self, "Error", "Default POST max size must be valid")
             return
+        default_signed_url_expiry = parse_duration_seconds(
+            self.default_expiry_edit.text(),
+            self.default_expiry_unit.currentText(),
+        )
+        if default_signed_url_expiry is None:
+            QtWidgets.QMessageBox.critical(self, "Error", "Default signed URL expiration must be valid")
+            return
         multipart_threshold = parse_size_bytes(self.threshold_edit.text(), self.threshold_unit.currentText())
         if multipart_threshold is None:
             QtWidgets.QMessageBox.critical(self, "Error", "Upload multipart threshold must be valid")
@@ -2307,6 +2342,7 @@ class SettingsDialog(QtWidgets.QDialog):
         self.result_settings = AppSettings(
             fetch_limit=fetch_limit,
             default_post_max_size=default_post_max_size,
+            default_signed_url_expiry=default_signed_url_expiry,
             upload_multipart_threshold=multipart_threshold,
             upload_chunk_size=chunk_size,
             upload_max_concurrency=max_concurrency,

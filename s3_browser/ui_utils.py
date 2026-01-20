@@ -12,6 +12,13 @@ SIZE_UNIT_FACTORS = {
     "MB": 1024 * 1024,
     "GB": 1024 * 1024 * 1024,
 }
+DURATION_UNITS = ("Seconds", "Minutes", "Hours", "Days")
+DURATION_UNIT_FACTORS = {
+    "seconds": 1,
+    "minutes": 60,
+    "hours": 60 * 60,
+    "days": 60 * 60 * 24,
+}
 
 
 @dataclass(frozen=True)
@@ -77,6 +84,28 @@ def parse_size_bytes(value: str, unit: str) -> int | None:
     if amount <= 0:
         return None
     factor = SIZE_UNIT_FACTORS.get(unit.strip().upper())
+    if not factor:
+        return None
+    return amount * factor
+
+
+def split_duration_seconds(seconds: int) -> tuple[str, str]:
+    if seconds <= 0:
+        return ("1", "Hours")
+    for unit, factor in (("Days", 60 * 60 * 24), ("Hours", 60 * 60), ("Minutes", 60)):
+        if seconds >= factor and seconds % factor == 0:
+            return (str(seconds // factor), unit)
+    return (str(seconds), "Seconds")
+
+
+def parse_duration_seconds(value: str, unit: str) -> int | None:
+    try:
+        amount = int(value.strip())
+    except (TypeError, ValueError):
+        return None
+    if amount <= 0:
+        return None
+    factor = DURATION_UNIT_FACTORS.get(unit.strip().lower())
     if not factor:
         return None
     return amount * factor

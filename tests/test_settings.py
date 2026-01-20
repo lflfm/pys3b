@@ -22,6 +22,7 @@ class SettingsStorageTests(unittest.TestCase):
             payload = {
                 "fetch_limit": "nope",
                 "default_post_max_size": -1,
+                "default_signed_url_expiry": 0,
                 "upload_multipart_threshold": 0,
                 "upload_chunk_size": "bad",
                 "upload_max_concurrency": -5,
@@ -36,6 +37,7 @@ class SettingsStorageTests(unittest.TestCase):
 
             self.assertEqual(AppSettings.fetch_limit, settings.fetch_limit)
             self.assertEqual(AppSettings.default_post_max_size, settings.default_post_max_size)
+            self.assertEqual(AppSettings.default_signed_url_expiry, settings.default_signed_url_expiry)
             self.assertEqual(AppSettings.upload_multipart_threshold, settings.upload_multipart_threshold)
             self.assertEqual(AppSettings.upload_chunk_size, settings.upload_chunk_size)
             self.assertEqual(AppSettings.upload_max_concurrency, settings.upload_max_concurrency)
@@ -49,6 +51,7 @@ class SettingsStorageTests(unittest.TestCase):
             settings = AppSettings(
                 fetch_limit=0,
                 default_post_max_size=-1,
+                default_signed_url_expiry=0,
                 upload_multipart_threshold=0,
                 upload_chunk_size=-5,
                 upload_max_concurrency=0,
@@ -62,6 +65,7 @@ class SettingsStorageTests(unittest.TestCase):
             saved = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(1, saved["fetch_limit"])
             self.assertEqual(1, saved["default_post_max_size"])
+            self.assertEqual(1, saved["default_signed_url_expiry"])
             self.assertEqual(1, saved["upload_multipart_threshold"])
             self.assertEqual(1, saved["upload_chunk_size"])
             self.assertEqual(1, saved["upload_max_concurrency"])
