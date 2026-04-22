@@ -72,6 +72,43 @@ When undertaking a non-trivial task, document your plan in `AGENTS_PLAN.md` befo
 
 Commit after each completed step — do not batch multiple steps into a single commit.
 
+Steps should be as small as possible but should be complete units of work which may involve changing multiple files. Each step (unit of work) should not break exising functionality (unless it the part of the general feature goal to disable existing functionality) and should not lead to errors due to missing "next steps" - but they can lead to "not implemented" messages.
+
+For example, a button may be added before its action is actually implemented, until the functionality is there, the button should just show a "not implemented" message - although it would be preferable that the button be invisible until such functionality is there.
+
+Tests should be revised and executed with success for each unit of work.
+
+## Versioning
+
+The project version is stored in `pyproject.toml` under `[project] version` and follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
+
+- Bump **MINOR** (`1.0.x` → `1.1.0`) when completing a new user-visible feature.
+- Bump **PATCH** (`1.0.2` → `1.0.3`) when completing a bug fix or non-feature improvement.
+- Bump **MAJOR** only for breaking changes or major rewrites; discuss with the user first.
+
+Bump the version in the same commit as the final (non-WIP) step of a feature or fix — never in a WIP commit. A version bump commit must also update `CHANGELOG.md` (see below).
+
+## Changelog
+
+Maintain `CHANGELOG.md` in the project root using the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+
+**Structure:**
+```
+## [Unreleased]
+### Added
+- ...
+
+## [1.0.2] - 2025-12
+### Added
+- ...
+```
+
+**Rules:**
+- Keep an `[Unreleased]` section at the top at all times.
+- Add an entry under `[Unreleased]` in the same commit as each completed feature step (any non-WIP commit that adds user-visible behaviour). Use the categories `Added`, `Changed`, `Fixed`, or `Removed` as appropriate.
+- When bumping the version, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM` (today's date, but no day) and add a fresh empty `[Unreleased]` section above it. Do this in the same commit as the `pyproject.toml` version bump.
+- Entries should be short user-facing descriptions, not technical commit messages. Write from the user's perspective: *"Bucket info dialog shows versioning status and region."* not *"Added BucketInfo dataclass and wired presenter callback."*
+
 ## Testing Patterns
 
 Tests use `unittest.TestCase` with hand-written fake objects (`FakeService`, `FakeS3Client`) rather than `unittest.mock`. Tests do not require AWS credentials or a running S3 service — all external I/O is replaced by fakes that implement the same interface as boto3 clients.
