@@ -1998,7 +1998,17 @@ class ObjectDetailsDialog(QtWidgets.QDialog):
             field.setReadOnly(True)
             details_layout.addRow(f"{label}:", field)
             self._detail_fields[label] = field
+
+        self._version_group = QtWidgets.QGroupBox("Version")
+        version_layout = QtWidgets.QFormLayout(self._version_group)
+        version_id_field = QtWidgets.QLineEdit("-")
+        version_id_field.setReadOnly(True)
+        version_layout.addRow("Version ID:", version_id_field)
+        self._detail_fields["Version ID"] = version_id_field
+        self._version_group.setVisible(False)
+
         layout.addWidget(self.details_group)
+        layout.addWidget(self._version_group)
         self.details_group.setVisible(False)
 
         self.checksums_text = QtWidgets.QPlainTextEdit()
@@ -2046,6 +2056,11 @@ class ObjectDetailsDialog(QtWidgets.QDialog):
         self.checksums_text.setPlainText(checksums_value)
         metadata_value = "\n".join(f"{k}: {v}" for k, v in sorted(details.metadata.items())) or "None"
         self.metadata_text.setPlainText(metadata_value)
+        if details.version_id:
+            self._detail_fields["Version ID"].setText(details.version_id)
+            self._version_group.setVisible(True)
+        else:
+            self._version_group.setVisible(False)
 
     def display_error(self, message: str) -> None:
         self.progress.setVisible(False)

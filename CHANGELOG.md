@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04
+
+### Added
+- "Show Versions" toggle in the Objects menu: when enabled, fetches all object versions and displays them as child nodes in the tree (delete markers shown with `[deleted]` prefix, latest version marked with ★).
+- Version node context menu: Info, Download this version, Delete this version.
+- Version-specific download: downloads the selected version directly.
+- Version-specific delete: permanently removes a single version after confirmation.
+- Object details dialog shows Version ID when viewing a specific version.
+
 ## [1.1.0] - 2026-04
 
 ### Added
