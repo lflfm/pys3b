@@ -8,7 +8,7 @@ from typing import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from .models import BucketListing, ObjectDetails
+from .models import BucketInfo, BucketListing, ObjectDetails
 from .presenter import S3BrowserPresenter
 from .profiles import ConnectionProfile
 from .settings import AppSettings
@@ -172,9 +172,15 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
 
         bucket_row = QtWidgets.QHBoxLayout()
         bucket_label = QtWidgets.QLabel("Bucket:")
+        self.bucket_info_button = QtWidgets.QToolButton()
+        self.bucket_info_button.setText("ⓘ")
+        self.bucket_info_button.setToolTip("Bucket information")
+        self.bucket_info_button.setEnabled(False)
+        self.bucket_info_button.clicked.connect(self._open_bucket_info)
         self.bucket_value_label = QtWidgets.QLabel("No bucket selected")
         self.bucket_value_label.setMinimumWidth(240)
         bucket_row.addWidget(bucket_label)
+        bucket_row.addWidget(self.bucket_info_button)
         bucket_row.addWidget(self.bucket_value_label, stretch=1)
 
         self.upload_button = QtWidgets.QPushButton("Upload File")
@@ -504,6 +510,25 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         self.presenter.update_last_bucket(self._selected_bucket)
         self._schedule_object_refresh()
 
+    def _open_bucket_info(self) -> None:
+        if not self._selected_bucket:
+            return
+        self.bucket_info_button.setEnabled(False)
+        self.presenter.get_bucket_info(
+            bucket_name=self._selected_bucket,
+            on_success=self._on_bucket_info_loaded,
+            on_error=lambda msg: self._on_bucket_info_error(msg),
+        )
+
+    def _on_bucket_info_loaded(self, info: BucketInfo) -> None:
+        self.bucket_info_button.setEnabled(bool(self._selected_bucket and not self._operation_in_progress))
+        dialog = BucketInfoDialog(self, info=info)
+        dialog.exec()
+
+    def _on_bucket_info_error(self, message: str) -> None:
+        self.bucket_info_button.setEnabled(bool(self._selected_bucket and not self._operation_in_progress))
+        QtWidgets.QMessageBox.warning(self, "Bucket Info Error", message)
+
     def _schedule_object_refresh(self) -> None:
         if self._pending_object_refresh:
             return
@@ -523,6 +548,7 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         enabled = bool(self._selected_connection and self._selected_bucket and not self._operation_in_progress)
         self.upload_action.setEnabled(enabled)
         self.upload_button.setEnabled(enabled)
+        self.bucket_info_button.setEnabled(enabled)
 
     def _set_download_controls_state(self, enabled: bool) -> None:
         self.download_action.setEnabled(enabled)
@@ -2351,6 +2377,45 @@ class SettingsDialog(QtWidgets.QDialog):
             last_connection=self._existing_settings.last_connection,
         )
         self.accept()
+
+
+class BucketInfoDialog(QtWidgets.QDialog):
+    """Dialog displaying metadata about the selected bucket."""
+
+    _VERSIONING_ICONS = {
+        "Enabled": "✓",
+        "Suspended": "⏸",
+        "Disabled": "✗",
+        "Unknown": "?",
+    }
+
+    def __init__(self, parent: QtWidgets.QWidget, *, info: BucketInfo) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Bucket Info")
+        self.setModal(True)
+        self.setMinimumWidth(340)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        form = QtWidgets.QFormLayout()
+
+        name_field = QtWidgets.QLineEdit(info.name)
+        name_field.setReadOnly(True)
+        form.addRow("Bucket:", name_field)
+
+        region_field = QtWidgets.QLineEdit(info.region or "—")
+        region_field.setReadOnly(True)
+        form.addRow("Region:", region_field)
+
+        icon = self._VERSIONING_ICONS.get(info.versioning_status, "?")
+        versioning_field = QtWidgets.QLineEdit(f"{icon}  {info.versioning_status}")
+        versioning_field.setReadOnly(True)
+        form.addRow("Versioning:", versioning_field)
+
+        layout.addLayout(form)
+
+        close_button = QtWidgets.QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button, alignment=QtCore.Qt.AlignRight)
 
 
 class AboutDialog(QtWidgets.QDialog):

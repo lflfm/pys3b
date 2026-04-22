@@ -21,7 +21,7 @@ Maps the versioning `Status` field (`"Enabled"` / `"Suspended"` / missing → `"
 - `controller.py`: add `get_bucket_info(bucket)` that calls `_require_connection()` then delegates to service.
 - `presenter.py`: add `get_bucket_info(bucket, on_result, on_error)` following the existing threading/callback pattern.
 
-**Step 4 — UI: info button + `BucketInfoDialog`**
+**[done] Step 4 — UI: info button + `BucketInfoDialog`**
 - In `qt_view.py` `_create_widgets()`: insert a small `QToolButton` with text `"ⓘ"` (or icon) between the `"Bucket:"` label and `bucket_value_label`. Disable it when no bucket is selected; enable/disable it alongside upload/download controls.
 - Add `BucketInfoDialog(QDialog)` that displays: Bucket name, Region, Versioning status.
 - Wire button click → call `presenter.get_bucket_info()` → open dialog on result.
