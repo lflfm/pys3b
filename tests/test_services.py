@@ -93,7 +93,8 @@ class FakeS3Client:
     def delete_object(self, **kwargs):
         bucket = kwargs["Bucket"]
         key = kwargs["Key"]
-        self.delete_object_calls.append((bucket, key))
+        version_id = kwargs.get("VersionId")
+        self.delete_object_calls.append((bucket, key, version_id))
         error = self.delete_object_errors.get((bucket, key))
         if isinstance(error, Exception):
             raise error
@@ -547,9 +548,24 @@ class S3BrowserServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            [("bucket-one", "folder/a.txt")],
+            [("bucket-one", "folder/a.txt", None)],
             fake_client.delete_object_calls,
         )
+
+    def test_delete_object_passes_version_id(self):
+        fake_client = FakeS3Client(["bucket-one"], {})
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        service.delete_object(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+            key="a.txt",
+            version_id="v42",
+        )
+
+        self.assertEqual([("bucket-one", "a.txt", "v42")], fake_client.delete_object_calls)
 
     def test_generate_presigned_get_url_passes_response_headers(self):
         fake_client = FakeS3Client(

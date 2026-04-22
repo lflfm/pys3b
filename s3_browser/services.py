@@ -430,11 +430,15 @@ class S3BrowserService:
         secret_key: str,
         bucket_name: str,
         key: str,
+        version_id: str | None = None,
     ) -> None:
-        """Delete an object from the target bucket/key."""
+        """Delete an object (or specific version) from the target bucket/key."""
 
         client = self._create_client(endpoint_url, access_key, secret_key)
-        client.delete_object(Bucket=bucket_name, Key=key)
+        params: dict = {"Bucket": bucket_name, "Key": key}
+        if version_id:
+            params["VersionId"] = version_id
+        client.delete_object(**params)
 
     def generate_presigned_url(
         self,

@@ -67,7 +67,7 @@ Uses boto3 `list_object_versions` API. Returns a `BucketListing` whose `ObjectPa
 - `controller.py`, `presenter.py`: thread `version_id` through.
 - `qt_view.py`: when a version node is selected and Download is triggered, pass `version_id`. Add "Download this version" to the version-node context menu.
 
-**Step 10 — Delete: version-aware**
+**[done] Step 10 — Delete: version-aware**
 - `services.py` `delete_object()`: accept optional `version_id`; pass to boto3 `delete_object`.
 - `controller.py`, `presenter.py`: thread `version_id` through.
 - `qt_view.py`: add "Delete this version" to the version-node context menu. Confirm before deleting.

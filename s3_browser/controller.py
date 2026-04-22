@@ -176,11 +176,12 @@ class S3BrowserController:
             **params,
         )
 
-    def delete_object(self, *, bucket_name: str, key: str) -> None:
+    def delete_object(self, *, bucket_name: str, key: str, version_id: str | None = None) -> None:
         params = self._require_connection()
         self._service.delete_object(
             bucket_name=bucket_name,
             key=key,
+            version_id=version_id,
             **params,
         )
 

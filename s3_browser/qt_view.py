@@ -1317,7 +1317,36 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         self._download_object(bucket, key, None, version_id=version_id, destination=destination)
 
     def _delete_selected_version(self) -> None:
-        QtWidgets.QMessageBox.information(self, "Not Implemented", "Version-specific delete coming soon.")
+        v = self._get_selected_version()
+        if not v:
+            return
+        bucket, key, version_id = v
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Delete Version",
+            f"Permanently delete version {version_id[:12]}… of '{key}'?\nThis cannot be undone.",
+        )
+        if confirm != QtWidgets.QMessageBox.Yes:
+            return
+        self._start_operation()
+        self.presenter.delete_object(
+            bucket_name=bucket,
+            key=key,
+            version_id=version_id,
+            on_success=lambda: self._on_version_deleted(bucket, key, version_id),
+            on_error=lambda msg: (self._end_operation(), self._show_error("Delete Error", msg)),
+        )
+
+    def _on_version_deleted(self, bucket: str, key: str, version_id: str) -> None:
+        self._end_operation()
+        node_id = f"version:{bucket}:{key}:{version_id}"
+        item = self._node_items.get(node_id)
+        if item:
+            parent = item.parent()
+            self._delete_subtree(node_id)
+            if parent:
+                self._prune_empty_parents(parent)
+        self._set_status(f"Deleted version {version_id[:12]}… of '{key}'.")
 
     def _show_version_details(self, bucket: str, key: str, version_id: str) -> None:
         dialog = ObjectDetailsDialog(

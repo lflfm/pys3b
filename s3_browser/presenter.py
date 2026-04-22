@@ -282,12 +282,13 @@ class S3BrowserPresenter:
         *,
         bucket_name: str,
         key: str,
+        version_id: str | None = None,
         on_success: DoneFn,
         on_error: ErrorFn,
     ) -> None:
         def task() -> None:
             try:
-                self._controller.delete_object(bucket_name=bucket_name, key=key)
+                self._controller.delete_object(bucket_name=bucket_name, key=key, version_id=version_id)
             except (BotoCoreError, ClientError) as exc:
                 message = _format_error(exc)
                 self._dispatch(lambda msg=message: on_error(msg))
