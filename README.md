@@ -10,7 +10,9 @@ Connection profiles are stored in the user folder, secrets are stored in the OS 
 - Upload files via drag-and-drop or file picker, with destination directory selection and multipart support
 - Download or delete multiple files at once
 - Generate signed URLs (GET, PUT, POST) with configurable expiry duration
-- View object metadata and details
+- View object metadata and details (size, ETag, checksums, custom metadata)
+- Bucket info button shows versioning status and region for the selected bucket
+- Object versioning: toggle "Show Versions" to browse all versions and delete markers in the tree; download or delete specific versions
 - Multiple named connection profiles; secrets stored in the OS keychain
 - Configurable settings: fetch limit, upload chunk size/concurrency, signed URL expiry defaults
 
@@ -36,8 +38,8 @@ pys3b
 ### Using a virtual environment
 
 ```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install git+https://github.com/lflfm/pys3b.git
 pys3b
 ```
@@ -56,8 +58,8 @@ toolbox run -c pys3b pys3b
 ## Development
 
 ```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -e .[dev]
 pys3b
 ```

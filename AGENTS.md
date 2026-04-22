@@ -24,7 +24,7 @@ pys3b --verbose   # with debug logging
 # Run tests
 pytest
 pytest tests/test_controller.py                                          # single file
-pytest tests/test_controller.py::TestS3BrowserController::test_name     # single test
+pytest tests/test_controller.py::S3BrowserControllerTests::test_name    # single test
 pytest -v                                                                # verbose
 ```
 
@@ -37,7 +37,7 @@ qt_view.py  →  presenter.py  →  controller.py  →  services.py  →  boto3
     UI            async           orchestration      S3 ops       AWS SDK
 ```
 
-**`models.py`** — Pure data classes: `ObjectPage`, `BucketListing`, `ObjectDetails`.
+**`models.py`** — Pure data classes: `ObjectVersion`, `ObjectPage`, `BucketListing`, `BucketInfo`, `ObjectDetails`.
 
 **`services.py`** — `S3BrowserService` wraps a boto3 S3 client for all S3 operations (list, download, upload with progress callbacks, delete, signed URLs). Designed for dependency injection in tests.
 
@@ -65,6 +65,7 @@ Commit message format: `[AI] [feature-name] [wip] short description`
   - `[AI] [dark-mode] apply theme to all dialogs`
   - `[AI] fix typo in README` (no feature tag needed for minor/standalone changes)
 - Before pushing, verify the commit was correctly signed: run `git log --show-signature -1` and confirm the GPG signature is valid. Do not push if the signature is missing or invalid.
+- Do **not** add `Co-Authored-By` trailers.
 
 ## Feature Planning (AGENTS_PLAN.md)
 
@@ -72,7 +73,7 @@ When undertaking a non-trivial task, document your plan in `AGENTS_PLAN.md` befo
 
 Commit after each completed step — do not batch multiple steps into a single commit.
 
-Steps should be as small as possible but should be complete units of work which may involve changing multiple files. Each step (unit of work) should not break exising functionality (unless it the part of the general feature goal to disable existing functionality) and should not lead to errors due to missing "next steps" - but they can lead to "not implemented" messages.
+Steps should be as small as possible but should be complete units of work which may involve changing multiple files. Each step (unit of work) should not break existing functionality (unless it the part of the general feature goal to disable existing functionality) and should not lead to errors due to missing "next steps" - but they can lead to "not implemented" messages.
 
 For example, a button may be added before its action is actually implemented, until the functionality is there, the button should just show a "not implemented" message - although it would be preferable that the button be invisible until such functionality is there.
 
