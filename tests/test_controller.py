@@ -113,6 +113,7 @@ class FakeService:
         bucket_name: str,
         key: str,
         destination: str,
+        version_id: str | None = None,
         progress_callback=None,
         cancel_requested=None,
     ):
@@ -124,6 +125,7 @@ class FakeService:
                 "bucket_name": bucket_name,
                 "key": key,
                 "destination": destination,
+                "version_id": version_id,
             }
         )
         if progress_callback:
@@ -301,6 +303,7 @@ class S3BrowserControllerTests(unittest.TestCase):
                 "bucket_name": "bucket-one",
                 "key": "file.txt",
                 "destination": "/tmp/file.txt",
+                "version_id": None,
             },
             self.fake_service.download_calls[0],
         )

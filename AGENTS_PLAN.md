@@ -62,7 +62,7 @@ Uses boto3 `list_object_versions` API. Returns a `BucketListing` whose `ObjectPa
 - Update `_populate_tree` / `_render_listing_contents` / `_insert_file_node` / `_handle_tree_open` to handle version child nodes when the toggle is on.
 - Version nodes for delete markers display with a distinct label (e.g. `[deleted]`).
 
-**Step 9 — Download: version-aware**
+**[done] Step 9 — Download: version-aware**
 - `services.py` `download_object()`: accept optional `version_id` kwarg; pass to boto3 `download_fileobj` via `ExtraArgs`.
 - `controller.py`, `presenter.py`: thread `version_id` through.
 - `qt_view.py`: when a version node is selected and Download is triggered, pass `version_id`. Add "Download this version" to the version-node context menu.

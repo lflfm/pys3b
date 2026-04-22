@@ -1306,7 +1306,15 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             self._show_version_details(*v)
 
     def _download_selected_version(self) -> None:
-        QtWidgets.QMessageBox.information(self, "Not Implemented", "Version-specific download coming soon.")
+        v = self._get_selected_version()
+        if not v:
+            return
+        bucket, key, version_id = v
+        filename = key.rsplit("/", 1)[-1]
+        destination, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", filename)
+        if not destination:
+            return
+        self._download_object(bucket, key, None, version_id=version_id, destination=destination)
 
     def _delete_selected_version(self) -> None:
         QtWidgets.QMessageBox.information(self, "Not Implemented", "Version-specific delete coming soon.")
@@ -1316,6 +1324,9 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             self,
             bucket=bucket,
             key=key,
+            on_download=lambda details=None: self._download_object(
+                bucket, key, details, version_id=version_id
+            ),
         )
 
         def handle_success(details: ObjectDetails) -> None:
@@ -1461,11 +1472,20 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             return confirm == QtWidgets.QMessageBox.Yes
         return True
 
-    def _download_object(self, bucket: str, key: str, details: ObjectDetails | None = None) -> None:
-        filename = key.rsplit("/", 1)[-1]
-        destination, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", filename)
-        if not destination:
-            return
+    def _download_object(
+        self,
+        bucket: str,
+        key: str,
+        details: ObjectDetails | None = None,
+        *,
+        version_id: str | None = None,
+        destination: str | None = None,
+    ) -> None:
+        if destination is None:
+            filename = key.rsplit("/", 1)[-1]
+            destination, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", filename)
+            if not destination:
+                return
         size_value = details.size if details else None
         dialog = self._start_transfer_dialog(
             title="Downloading",
@@ -1488,6 +1508,7 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             bucket_name=bucket,
             key=key,
             destination=destination,
+            version_id=version_id,
             on_progress=lambda total: self._report_transfer_progress(dialog, total),
             cancel_requested=dialog.cancel_requested,
             on_success=handle_success,

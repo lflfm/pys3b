@@ -136,6 +136,7 @@ class S3BrowserController:
         bucket_name: str,
         key: str,
         destination: str,
+        version_id: str | None = None,
         progress_callback: Optional[Callable[[int], None]] = None,
         cancel_requested: Optional[Callable[[], bool]] = None,
     ) -> None:
@@ -144,6 +145,7 @@ class S3BrowserController:
             bucket_name=bucket_name,
             key=key,
             destination=destination,
+            version_id=version_id,
             progress_callback=progress_callback,
             cancel_requested=cancel_requested,
             **params,

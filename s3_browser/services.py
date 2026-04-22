@@ -363,6 +363,7 @@ class S3BrowserService:
         bucket_name: str,
         key: str,
         destination: str,
+        version_id: str | None = None,
         progress_callback: Optional[Callable[[int], None]] = None,
         cancel_requested: Optional[Callable[[], bool]] = None,
     ) -> None:
@@ -370,7 +371,11 @@ class S3BrowserService:
 
         client = self._create_client(endpoint_url, access_key, secret_key)
         callback = self._build_transfer_callback(progress_callback, cancel_requested)
-        client.download_file(bucket_name, key, destination, Callback=callback)
+        extra_args = {}
+        if version_id:
+            extra_args["VersionId"] = version_id
+        client.download_file(bucket_name, key, destination, Callback=callback,
+                             ExtraArgs=extra_args if extra_args else None)
 
     def upload_object(
         self,

@@ -71,8 +71,8 @@ class FakeS3Client:
             raise response
         return response
 
-    def download_file(self, bucket, key, filename, Callback=None):
-        self.download_file_calls.append((bucket, key, filename))
+    def download_file(self, bucket, key, filename, Callback=None, ExtraArgs=None):
+        self.download_file_calls.append((bucket, key, filename, ExtraArgs or {}))
         error = self.download_file_errors.get((bucket, key))
         if isinstance(error, Exception):
             raise error
@@ -340,7 +340,24 @@ class S3BrowserServiceTests(unittest.TestCase):
             destination="/tmp/a.txt",
         )
 
-        self.assertEqual([("bucket-one", "a.txt", "/tmp/a.txt")], fake_client.download_file_calls)
+        self.assertEqual([("bucket-one", "a.txt", "/tmp/a.txt", {})], fake_client.download_file_calls)
+
+    def test_download_object_passes_version_id(self):
+        fake_client = FakeS3Client(["bucket-one"], {})
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        service.download_object(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+            key="a.txt",
+            destination="/tmp/a.txt",
+            version_id="v42",
+        )
+
+        self.assertEqual(1, len(fake_client.download_file_calls))
+        self.assertEqual({"VersionId": "v42"}, fake_client.download_file_calls[0][3])
 
     def test_download_object_reports_progress_and_supports_cancel(self):
         transfer_sequences = {("download", "bucket-one", "a.txt"): [1024, 2048, 1024]}

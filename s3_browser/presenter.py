@@ -305,6 +305,7 @@ class S3BrowserPresenter:
         bucket_name: str,
         key: str,
         destination: str,
+        version_id: str | None = None,
         on_progress: Callable[[int], None] | None = None,
         cancel_requested: Callable[[], bool] | None = None,
         on_success: DoneFn | None = None,
@@ -322,6 +323,7 @@ class S3BrowserPresenter:
                     bucket_name=bucket_name,
                     key=key,
                     destination=destination,
+                    version_id=version_id,
                     progress_callback=progress_callback,
                     cancel_requested=cancel_requested,
                 )
