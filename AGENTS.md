@@ -68,19 +68,9 @@ Commit message format: `[AI] [feature-name] [wip] short description`
 
 ## Feature Planning (AGENTS_PLAN.md)
 
-When starting work on a new feature, create or update `AGENTS_PLAN.md` in the repo root with a plan for that feature. The file should list the steps needed, and each step should be marked as done (`[x]`) as it is completed. Keep the plan up to date throughout the work.
+When undertaking a non-trivial task, document your plan in `AGENTS_PLAN.md` before writing code. Keep it current as work progresses: mark each step done (e.g. prefix with `[done]`) as soon as it is fully implemented, and replace the file contents with `_No active plan._` once all steps are complete.
 
-Format example:
-
-```markdown
-## Feature: dark-mode
-
-- [x] Add theme toggle to settings dialog
-- [x] Persist theme preference in AppSettings
-- [ ] Apply theme to all dialogs and widgets
-```
-
-When the feature is fully complete and nothing is in progress, empty `AGENTS_PLAN.md` (leave the file but remove all content). Do not delete the file.
+Commit after each completed step — do not batch multiple steps into a single commit.
 
 ## Testing Patterns
 
