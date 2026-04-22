@@ -44,7 +44,7 @@ Add `ObjectVersion` dataclass to `models.py`:
 Add `versions: list[ObjectVersion]` to `ObjectPage` (default empty list).
 Add optional `version_id: Optional[str]` field to `ObjectDetails`.
 
-**Step 6 — Service: `list_object_versions()`**
+**[done] Step 6 — Service: `list_object_versions()`**
 Add `S3BrowserService.list_object_versions(bucket, prefix, delimiter, continuation_token) -> BucketListing` to `services.py`.
 Uses boto3 `list_object_versions` API. Returns a `BucketListing` whose `ObjectPage` entries carry `versions` (both `Versions` and `DeleteMarkers` from the API response). Update `get_object_details()` to accept and pass an optional `version_id` to `head_object`.
 

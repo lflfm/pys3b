@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - lightweight fallbacks
     class ClientError(Exception):  # type: ignore[no-redef]
         pass
 
-from .models import BucketInfo, BucketListing, ObjectDetails, ObjectPage
+from .models import BucketInfo, BucketListing, ObjectDetails, ObjectPage, ObjectVersion
 
 
 class TransferCancelledError(RuntimeError):
@@ -198,6 +198,88 @@ class S3BrowserService:
             continuation_token=next_continuation_token,
         )
 
+    def list_object_versions(
+        self,
+        *,
+        endpoint_url: str,
+        access_key: str,
+        secret_key: str,
+        bucket_name: str,
+        prefix: str = "",
+        delimiter: str | None = "/",
+        continuation_token: str | None = None,
+    ) -> BucketListing:
+        """Return a BucketListing whose ObjectPage entries include per-key version lists."""
+
+        client = self._create_client(endpoint_url, access_key, secret_key)
+        pages: list[ObjectPage] = []
+        next_token: str | None = None
+        has_more = False
+
+        list_params: dict = {"Bucket": bucket_name, "MaxKeys": PAGE_SIZE}
+        if prefix:
+            list_params["Prefix"] = prefix
+        if delimiter:
+            list_params["Delimiter"] = delimiter
+        if continuation_token:
+            list_params["KeyMarker"] = continuation_token
+
+        try:
+            response = client.list_object_versions(**list_params)
+
+            keys: list[str] = []
+            prefixes: list[str] = [cp["Prefix"] for cp in response.get("CommonPrefixes", [])]
+            versions_by_key: dict[str, list[ObjectVersion]] = {}
+
+            for v in response.get("Versions", []):
+                key = v["Key"]
+                if key not in versions_by_key:
+                    keys.append(key)
+                    versions_by_key[key] = []
+                versions_by_key[key].append(
+                    ObjectVersion(
+                        version_id=v["VersionId"],
+                        last_modified=v.get("LastModified"),
+                        size=v.get("Size"),
+                        etag=v.get("ETag"),
+                        storage_class=v.get("StorageClass"),
+                        is_latest=v.get("IsLatest", False),
+                        is_delete_marker=False,
+                    )
+                )
+
+            for dm in response.get("DeleteMarkers", []):
+                key = dm["Key"]
+                if key not in versions_by_key:
+                    keys.append(key)
+                    versions_by_key[key] = []
+                versions_by_key[key].append(
+                    ObjectVersion(
+                        version_id=dm["VersionId"],
+                        last_modified=dm.get("LastModified"),
+                        is_latest=dm.get("IsLatest", False),
+                        is_delete_marker=True,
+                    )
+                )
+
+            pages.append(ObjectPage(number=1, keys=keys, prefixes=prefixes, versions=versions_by_key))
+
+            if response.get("IsTruncated"):
+                has_more = True
+                next_token = response.get("NextKeyMarker")
+
+        except (ClientError, BotoCoreError) as exc:
+            pages.append(ObjectPage(number=1, error=str(exc)))
+
+        return BucketListing(
+            name=bucket_name,
+            prefix=prefix or "",
+            delimiter=delimiter or "",
+            pages=pages,
+            has_more=has_more,
+            continuation_token=next_token,
+        )
+
     def get_bucket_info(
         self,
         *,
@@ -242,11 +324,15 @@ class S3BrowserService:
         secret_key: str,
         bucket_name: str,
         key: str,
+        version_id: str | None = None,
     ) -> ObjectDetails:
         """Fetch metadata about a single object."""
 
         client = self._create_client(endpoint_url, access_key, secret_key)
-        response = client.head_object(Bucket=bucket_name, Key=key, ChecksumMode='ENABLED')
+        head_params: dict = {"Bucket": bucket_name, "Key": key, "ChecksumMode": "ENABLED"}
+        if version_id:
+            head_params["VersionId"] = version_id
+        response = client.head_object(**head_params)
         # print("head response:", response)
         checksums = {
             "CRC32": response.get("ChecksumCRC32"),
@@ -265,6 +351,7 @@ class S3BrowserService:
             content_type=response.get("ContentType"),
             metadata=dict(response.get("Metadata") or {}),
             checksums=checksums,
+            version_id=response.get("VersionId") or version_id,
         )
 
     def download_object(

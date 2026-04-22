@@ -113,6 +113,16 @@ class FakeS3Client:
             raise result
         return result
 
+    def list_object_versions(self, **kwargs):
+        bucket = kwargs["Bucket"]
+        key_marker = kwargs.get("KeyMarker")
+        self.list_objects_calls.append((bucket, key_marker))
+        self.list_objects_kwargs.append(kwargs)
+        response = next(self.object_responses[bucket])
+        if isinstance(response, Exception):
+            raise response
+        return response
+
     def get_bucket_versioning(self, **kwargs):
         bucket = kwargs["Bucket"]
         self.versioning_calls.append(bucket)
@@ -672,6 +682,107 @@ class S3BrowserServiceTests(unittest.TestCase):
                 max_size=10,
             )
 
+
+    def test_list_object_versions_returns_versions_and_delete_markers(self):
+        from datetime import timezone
+        ts = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {
+                "bucket-one": [
+                    {
+                        "Versions": [
+                            {"Key": "file.txt", "VersionId": "v1", "IsLatest": True,
+                             "LastModified": ts, "Size": 100, "ETag": '"abc"', "StorageClass": "STANDARD"},
+                            {"Key": "file.txt", "VersionId": "v2", "IsLatest": False,
+                             "LastModified": ts, "Size": 90, "ETag": '"def"', "StorageClass": "STANDARD"},
+                        ],
+                        "DeleteMarkers": [
+                            {"Key": "gone.txt", "VersionId": "dm1", "IsLatest": True, "LastModified": ts},
+                        ],
+                        "CommonPrefixes": [{"Prefix": "folder/"}],
+                        "IsTruncated": False,
+                    }
+                ]
+            },
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        listing = service.list_object_versions(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+        )
+
+        self.assertEqual("bucket-one", listing.name)
+        self.assertEqual(1, len(listing.pages))
+        page = listing.pages[0]
+        self.assertIn("file.txt", page.keys)
+        self.assertIn("gone.txt", page.keys)
+        self.assertEqual(["folder/"], page.prefixes)
+
+        file_versions = page.versions["file.txt"]
+        self.assertEqual(2, len(file_versions))
+        self.assertEqual("v1", file_versions[0].version_id)
+        self.assertTrue(file_versions[0].is_latest)
+        self.assertFalse(file_versions[0].is_delete_marker)
+        self.assertEqual(100, file_versions[0].size)
+
+        dm_versions = page.versions["gone.txt"]
+        self.assertEqual(1, len(dm_versions))
+        self.assertEqual("dm1", dm_versions[0].version_id)
+        self.assertTrue(dm_versions[0].is_delete_marker)
+        self.assertTrue(dm_versions[0].is_latest)
+
+    def test_list_object_versions_truncated_sets_has_more(self):
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {
+                "bucket-one": [
+                    {
+                        "Versions": [{"Key": "a.txt", "VersionId": "v1", "IsLatest": True}],
+                        "DeleteMarkers": [],
+                        "IsTruncated": True,
+                        "NextKeyMarker": "a.txt",
+                    }
+                ]
+            },
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        listing = service.list_object_versions(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+        )
+
+        self.assertTrue(listing.has_more)
+        self.assertEqual("a.txt", listing.continuation_token)
+
+    def test_get_object_details_with_version_id(self):
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {},
+            head_object_responses={
+                ("bucket-one", "file.txt"): {"ContentLength": 42, "VersionId": "v99"},
+            },
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        details = service.get_object_details(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+            key="file.txt",
+            version_id="v99",
+        )
+
+        self.assertEqual("v99", details.version_id)
+        head_call = fake_client.head_object_calls[0]
+        self.assertEqual("v99", head_call.get("VersionId"))
 
     def test_get_bucket_info_returns_versioning_and_region(self):
         fake_client = FakeS3Client(
