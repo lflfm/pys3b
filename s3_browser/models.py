@@ -29,6 +29,15 @@ class BucketListing:
 
 
 @dataclass
+class BucketInfo:
+    """Metadata about an S3 bucket."""
+
+    name: str
+    versioning_status: str = "Unknown"
+    region: Optional[str] = None
+
+
+@dataclass
 class ObjectDetails:
     """Metadata about a single S3 object."""
 

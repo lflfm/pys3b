@@ -6,7 +6,7 @@
 
 ### Phase 1 — Bucket Info Button
 
-**Step 1 — Data model: `BucketInfo`**
+**[done] Step 1 — Data model: `BucketInfo`**
 Add `BucketInfo` dataclass to `models.py` with fields:
 - `name: str`
 - `versioning_status: str` — one of `"Enabled"`, `"Suspended"`, `"Disabled"`, `"Unknown"`
