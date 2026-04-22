@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from s3_browser.controller import NotConnectedError, S3BrowserController
-from s3_browser.models import BucketListing, ObjectDetails
+from s3_browser.models import BucketInfo, BucketListing, ObjectDetails
 from s3_browser.profiles import ConnectionProfile, ProfileStorage
 
 
@@ -17,6 +17,8 @@ class FakeService:
         self.object_details = ObjectDetails(bucket="bucket-one", key="file.txt")
         self.download_calls = []
         self.upload_calls = []
+        self.bucket_info_calls = []
+        self.bucket_info = BucketInfo(name="bucket-one", versioning_status="Enabled", region="eu-west-1")
 
     def list_buckets(self, *, endpoint_url: str, access_key: str, secret_key: str):
         self.list_buckets_calls.append(
@@ -129,6 +131,24 @@ class FakeService:
         )
         if progress_callback:
             progress_callback(0)
+
+    def get_bucket_info(
+        self,
+        *,
+        endpoint_url: str,
+        access_key: str,
+        secret_key: str,
+        bucket_name: str,
+    ):
+        self.bucket_info_calls.append(
+            {
+                "endpoint_url": endpoint_url,
+                "access_key": access_key,
+                "secret_key": secret_key,
+                "bucket_name": bucket_name,
+            }
+        )
+        return self.bucket_info
 
 
 class FakeProfileStorage:
@@ -375,6 +395,25 @@ class S3BrowserControllerTests(unittest.TestCase):
                 "secret_key": "sk",
             },
             self.fake_service.list_buckets_calls[0],
+        )
+
+    def test_get_bucket_info_requires_connection(self):
+        with self.assertRaises(NotConnectedError):
+            self.controller.get_bucket_info(bucket_name="bucket-one")
+
+    def test_get_bucket_info_passes_through_params(self):
+        self.controller.connect(**self.params)
+
+        info = self.controller.get_bucket_info(bucket_name="bucket-one")
+
+        self.assertIs(info, self.fake_service.bucket_info)
+        self.assertEqual(1, len(self.fake_service.bucket_info_calls))
+        self.assertEqual(
+            {
+                **self.params,
+                "bucket_name": "bucket-one",
+            },
+            self.fake_service.bucket_info_calls[0],
         )
 
 

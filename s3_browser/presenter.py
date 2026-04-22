@@ -8,7 +8,7 @@ from typing import Callable, Iterable
 from botocore.exceptions import BotoCoreError, ClientError
 
 from .controller import S3BrowserController
-from .models import BucketListing, ObjectDetails
+from .models import BucketInfo, BucketListing, ObjectDetails
 from .profiles import ConnectionProfile
 from .services import TransferCancelledError
 from .settings import AppSettings, SettingsStorage
@@ -194,6 +194,27 @@ class S3BrowserPresenter:
             finally:
                 if on_done:
                     self._dispatch(on_done)
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def get_bucket_info(
+        self,
+        *,
+        bucket_name: str,
+        on_success: Callable[[BucketInfo], None],
+        on_error: ErrorFn,
+    ) -> None:
+        def task() -> None:
+            try:
+                info = self._controller.get_bucket_info(bucket_name=bucket_name)
+            except (BotoCoreError, ClientError) as exc:
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
+            except Exception as exc:
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
+            else:
+                self._dispatch(lambda: on_success(info))
 
         threading.Thread(target=task, daemon=True).start()
 

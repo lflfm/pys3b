@@ -17,7 +17,7 @@ Add `S3BrowserService.get_bucket_info(bucket: str) -> BucketInfo` to `services.p
 Calls `client.get_bucket_versioning(Bucket=bucket)` and `client.get_bucket_location(Bucket=bucket)`.
 Maps the versioning `Status` field (`"Enabled"` / `"Suspended"` / missing → `"Disabled"`).
 
-**Step 3 — Controller + Presenter: `get_bucket_info()`**
+**[done] Step 3 — Controller + Presenter: `get_bucket_info()`**
 - `controller.py`: add `get_bucket_info(bucket)` that calls `_require_connection()` then delegates to service.
 - `presenter.py`: add `get_bucket_info(bucket, on_result, on_error)` following the existing threading/callback pattern.
 

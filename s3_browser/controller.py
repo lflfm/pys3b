@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from .models import BucketListing, ObjectDetails
+from .models import BucketInfo, BucketListing, ObjectDetails
 from .profiles import ConnectionProfile, ProfileStorage
 from .services import S3BrowserService
 
@@ -99,6 +99,10 @@ class S3BrowserController:
             continuation_token=continuation_token,
             **params,
         )
+
+    def get_bucket_info(self, *, bucket_name: str) -> BucketInfo:
+        params = self._require_connection()
+        return self._service.get_bucket_info(bucket_name=bucket_name, **params)
 
     def get_object_details(self, *, bucket_name: str, key: str) -> ObjectDetails:
         params = self._require_connection()
