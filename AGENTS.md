@@ -2,12 +2,21 @@
 
 This file provides guidance to AI coding agents when working with code in this repository.
 
+## Environment Setup
+
+Always use a virtual environment for development and testing. Create and activate one before installing dependencies or running any commands:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+```
+
+Activate the venv at the start of every session. All commands below assume the venv is active.
+
 ## Commands
 
 ```bash
-# Install for development
-pip install -e '.[dev]'
-
 # Run the application
 pys3b
 pys3b --verbose   # with debug logging
@@ -46,8 +55,32 @@ qt_view.py  →  presenter.py  →  controller.py  →  services.py  →  boto3
 
 ## Git Conventions for AI Agents
 
-- Prepend all commit messages with `[AI]`, e.g. `[AI] fix typo in README`.
+Commit message format: `[AI] [feature-name] [wip] short description`
+
+- Always prepend `[AI]`.
+- Add `[feature-name]` to group commits belonging to a feature, e.g. `[signed-urls]`, `[uploads]`. Use the same tag consistently across all commits for that feature.
+- Add `[wip]` when the commit leaves the feature incomplete (work in progress). Omit it on the final commit that completes the feature.
+- Examples:
+  - `[AI] [dark-mode] [wip] add theme toggle button`
+  - `[AI] [dark-mode] apply theme to all dialogs`
+  - `[AI] fix typo in README` (no feature tag needed for minor/standalone changes)
 - Before pushing, verify the commit was correctly signed: run `git log --show-signature -1` and confirm the GPG signature is valid. Do not push if the signature is missing or invalid.
+
+## Feature Planning (AGENTS_PLAN.md)
+
+When starting work on a new feature, create or update `AGENTS_PLAN.md` in the repo root with a plan for that feature. The file should list the steps needed, and each step should be marked as done (`[x]`) as it is completed. Keep the plan up to date throughout the work.
+
+Format example:
+
+```markdown
+## Feature: dark-mode
+
+- [x] Add theme toggle to settings dialog
+- [x] Persist theme preference in AppSettings
+- [ ] Apply theme to all dialogs and widgets
+```
+
+When the feature is fully complete and nothing is in progress, empty `AGENTS_PLAN.md` (leave the file but remove all content). Do not delete the file.
 
 ## Testing Patterns
 
