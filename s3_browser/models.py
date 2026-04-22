@@ -6,12 +6,26 @@ from typing import Optional
 
 
 @dataclass
+class ObjectVersion:
+    """Represents a single version of an S3 object."""
+
+    version_id: str
+    last_modified: Optional[datetime] = None
+    size: Optional[int] = None
+    etag: Optional[str] = None
+    storage_class: Optional[str] = None
+    is_latest: bool = False
+    is_delete_marker: bool = False
+
+
+@dataclass
 class ObjectPage:
     """Represents a single page of S3 objects."""
 
     number: int
     keys: list[str] = field(default_factory=list)
     prefixes: list[str] = field(default_factory=list)
+    versions: dict[str, list[ObjectVersion]] = field(default_factory=dict)
     error: Optional[str] = None
 
 
@@ -50,3 +64,4 @@ class ObjectDetails:
     content_type: Optional[str] = None
     metadata: dict[str, str] = field(default_factory=dict)
     checksums: dict[str, str] = field(default_factory=dict)
+    version_id: Optional[str] = None

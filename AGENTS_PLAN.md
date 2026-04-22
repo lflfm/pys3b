@@ -31,7 +31,7 @@ Maps the versioning `Status` field (`"Enabled"` / `"Suspended"` / missing → `"
 
 ### Phase 2 — Versioning Foundation
 
-**Step 5 — Data models: `ObjectVersion`**
+**[done] Step 5 — Data models: `ObjectVersion`**
 Add `ObjectVersion` dataclass to `models.py`:
 - `version_id: str`
 - `last_modified: Optional[datetime]`
