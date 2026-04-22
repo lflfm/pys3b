@@ -104,11 +104,29 @@ class S3BrowserController:
         params = self._require_connection()
         return self._service.get_bucket_info(bucket_name=bucket_name, **params)
 
-    def get_object_details(self, *, bucket_name: str, key: str) -> ObjectDetails:
+    def list_object_versions(
+        self,
+        *,
+        bucket_name: str,
+        prefix: str = "",
+        delimiter: str | None = "/",
+        continuation_token: str | None = None,
+    ) -> BucketListing:
+        params = self._require_connection()
+        return self._service.list_object_versions(
+            bucket_name=bucket_name,
+            prefix=prefix,
+            delimiter=delimiter,
+            continuation_token=continuation_token,
+            **params,
+        )
+
+    def get_object_details(self, *, bucket_name: str, key: str, version_id: str | None = None) -> ObjectDetails:
         params = self._require_connection()
         return self._service.get_object_details(
             bucket_name=bucket_name,
             key=key,
+            version_id=version_id,
             **params,
         )
 

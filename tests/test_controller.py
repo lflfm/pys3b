@@ -19,6 +19,8 @@ class FakeService:
         self.upload_calls = []
         self.bucket_info_calls = []
         self.bucket_info = BucketInfo(name="bucket-one", versioning_status="Enabled", region="eu-west-1")
+        self.list_versions_calls = []
+        self.versions_listing = BucketListing(name="bucket-one", pages=[])
 
     def list_buckets(self, *, endpoint_url: str, access_key: str, secret_key: str):
         self.list_buckets_calls.append(
@@ -64,6 +66,7 @@ class FakeService:
         secret_key: str,
         bucket_name: str,
         key: str,
+        version_id: str | None = None,
     ):
         self.object_details_calls.append(
             {
@@ -72,9 +75,34 @@ class FakeService:
                 "secret_key": secret_key,
                 "bucket_name": bucket_name,
                 "key": key,
+                "version_id": version_id,
             }
         )
         return self.object_details
+
+    def list_object_versions(
+        self,
+        *,
+        endpoint_url: str,
+        access_key: str,
+        secret_key: str,
+        bucket_name: str,
+        prefix: str = "",
+        delimiter: str | None = "/",
+        continuation_token: str | None = None,
+    ):
+        self.list_versions_calls.append(
+            {
+                "endpoint_url": endpoint_url,
+                "access_key": access_key,
+                "secret_key": secret_key,
+                "bucket_name": bucket_name,
+                "prefix": prefix,
+                "delimiter": delimiter,
+                "continuation_token": continuation_token,
+            }
+        )
+        return self.versions_listing
 
     def download_object(
         self,
@@ -248,6 +276,7 @@ class S3BrowserControllerTests(unittest.TestCase):
                 **self.params,
                 "bucket_name": "bucket-one",
                 "key": "file.txt",
+                "version_id": None,
             },
             self.fake_service.object_details_calls[0],
         )
@@ -396,6 +425,37 @@ class S3BrowserControllerTests(unittest.TestCase):
             },
             self.fake_service.list_buckets_calls[0],
         )
+
+    def test_list_object_versions_requires_connection(self):
+        with self.assertRaises(NotConnectedError):
+            self.controller.list_object_versions(bucket_name="bucket-one")
+
+    def test_list_object_versions_passes_through_params(self):
+        self.controller.connect(**self.params)
+
+        listing = self.controller.list_object_versions(
+            bucket_name="bucket-one", prefix="folder/", continuation_token="marker"
+        )
+
+        self.assertIs(listing, self.fake_service.versions_listing)
+        self.assertEqual(1, len(self.fake_service.list_versions_calls))
+        self.assertEqual(
+            {
+                **self.params,
+                "bucket_name": "bucket-one",
+                "prefix": "folder/",
+                "delimiter": "/",
+                "continuation_token": "marker",
+            },
+            self.fake_service.list_versions_calls[0],
+        )
+
+    def test_get_object_details_passes_version_id(self):
+        self.controller.connect(**self.params)
+
+        self.controller.get_object_details(bucket_name="bucket-one", key="file.txt", version_id="v42")
+
+        self.assertEqual("v42", self.fake_service.object_details_calls[0]["version_id"])
 
     def test_get_bucket_info_requires_connection(self):
         with self.assertRaises(NotConnectedError):

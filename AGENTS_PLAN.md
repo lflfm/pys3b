@@ -48,7 +48,7 @@ Add optional `version_id: Optional[str]` field to `ObjectDetails`.
 Add `S3BrowserService.list_object_versions(bucket, prefix, delimiter, continuation_token) -> BucketListing` to `services.py`.
 Uses boto3 `list_object_versions` API. Returns a `BucketListing` whose `ObjectPage` entries carry `versions` (both `Versions` and `DeleteMarkers` from the API response). Update `get_object_details()` to accept and pass an optional `version_id` to `head_object`.
 
-**Step 7 — Controller + Presenter: version listing + details**
+**[done] Step 7 — Controller + Presenter: version listing + details**
 - `controller.py`: add `list_object_versions(bucket, prefix, delimiter, continuation_token)` delegating to service. Update `get_object_details()` signature to accept `version_id=None`.
 - `presenter.py`: add `list_object_versions(...)` following the existing callback pattern. Update `get_object_details()` to pass `version_id`.
 

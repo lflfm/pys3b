@@ -197,6 +197,40 @@ class S3BrowserPresenter:
 
         threading.Thread(target=task, daemon=True).start()
 
+    def list_object_versions(
+        self,
+        *,
+        bucket_name: str,
+        prefix: str = "",
+        delimiter: str | None = "/",
+        continuation_token: str | None = None,
+        on_success: Callable[[BucketListing], None],
+        on_error: ErrorFn,
+        on_done: DoneFn | None = None,
+    ) -> None:
+        LOGGER.debug("Listing versions for bucket '%s'", bucket_name)
+        def task() -> None:
+            try:
+                listing = self._controller.list_object_versions(
+                    bucket_name=bucket_name,
+                    prefix=prefix,
+                    delimiter=delimiter,
+                    continuation_token=continuation_token,
+                )
+            except (BotoCoreError, ClientError) as exc:
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
+            except Exception as exc:
+                message = _format_error(exc)
+                self._dispatch(lambda msg=message: on_error(msg))
+            else:
+                self._dispatch(lambda: on_success(listing))
+            finally:
+                if on_done:
+                    self._dispatch(on_done)
+
+        threading.Thread(target=task, daemon=True).start()
+
     def get_bucket_info(
         self,
         *,
@@ -223,12 +257,15 @@ class S3BrowserPresenter:
         *,
         bucket_name: str,
         key: str,
+        version_id: str | None = None,
         on_success: Callable[[ObjectDetails], None],
         on_error: ErrorFn,
     ) -> None:
         def task() -> None:
             try:
-                details = self._controller.get_object_details(bucket_name=bucket_name, key=key)
+                details = self._controller.get_object_details(
+                    bucket_name=bucket_name, key=key, version_id=version_id
+                )
             except (BotoCoreError, ClientError) as exc:
                 message = _format_error(exc)
                 self._dispatch(lambda msg=message: on_error(msg))
