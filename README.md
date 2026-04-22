@@ -4,6 +4,16 @@ Simple GUI tool to manage and interact with S3 buckets.
 
 Connection profiles are stored in the user folder, secrets are stored in the OS keychain.
 
+## Features
+
+- Browse buckets and navigate object prefixes with pagination
+- Upload files via drag-and-drop or file picker, with destination directory selection and multipart support
+- Download or delete multiple files at once
+- Generate signed URLs (GET, PUT, POST) with configurable expiry duration
+- View object metadata and details
+- Multiple named connection profiles; secrets stored in the OS keychain
+- Configurable settings: fetch limit, upload chunk size/concurrency, signed URL expiry defaults
+
 ## Installation & Usage
 
 Install directly from GitHub:
