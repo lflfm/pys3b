@@ -22,6 +22,8 @@ class FakeS3Client:
         presigned_url_outputs=None,
         presigned_post_outputs=None,
         transfer_sequences=None,
+        versioning_responses=None,
+        location_responses=None,
     ):
         self.buckets = buckets
         self.object_responses = {name: iter(responses) for name, responses in object_responses.items()}
@@ -41,6 +43,10 @@ class FakeS3Client:
         self.presigned_post_outputs = presigned_post_outputs or {}
         self.presigned_post_calls = []
         self.transfer_sequences = transfer_sequences or {}
+        self.versioning_responses = versioning_responses or {}
+        self.versioning_calls = []
+        self.location_responses = location_responses or {}
+        self.location_calls = []
 
     def list_buckets(self):
         return {"Buckets": [{"Name": name} for name in self.buckets]}
@@ -106,6 +112,22 @@ class FakeS3Client:
         if isinstance(result, Exception):
             raise result
         return result
+
+    def get_bucket_versioning(self, **kwargs):
+        bucket = kwargs["Bucket"]
+        self.versioning_calls.append(bucket)
+        response = self.versioning_responses.get(bucket, {})
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    def get_bucket_location(self, **kwargs):
+        bucket = kwargs["Bucket"]
+        self.location_calls.append(bucket)
+        response = self.location_responses.get(bucket, {})
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     def generate_presigned_post(self, Bucket=None, Key=None, Fields=None, Conditions=None, ExpiresIn=3600):
         self.presigned_post_calls.append(
@@ -649,6 +671,79 @@ class S3BrowserServiceTests(unittest.TestCase):
                 post_key_mode="unknown",
                 max_size=10,
             )
+
+
+    def test_get_bucket_info_returns_versioning_and_region(self):
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {},
+            versioning_responses={"bucket-one": {"Status": "Enabled"}},
+            location_responses={"bucket-one": {"LocationConstraint": "eu-west-1"}},
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        info = service.get_bucket_info(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+        )
+
+        self.assertEqual("bucket-one", info.name)
+        self.assertEqual("Enabled", info.versioning_status)
+        self.assertEqual("eu-west-1", info.region)
+        self.assertEqual(["bucket-one"], fake_client.versioning_calls)
+        self.assertEqual(["bucket-one"], fake_client.location_calls)
+
+    def test_get_bucket_info_suspended_versioning(self):
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {},
+            versioning_responses={"bucket-one": {"Status": "Suspended"}},
+            location_responses={"bucket-one": {"LocationConstraint": None}},
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        info = service.get_bucket_info(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+        )
+
+        self.assertEqual("Suspended", info.versioning_status)
+        self.assertEqual("us-east-1", info.region)
+
+    def test_get_bucket_info_disabled_when_status_missing(self):
+        fake_client = FakeS3Client(["bucket-one"], {})
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        info = service.get_bucket_info(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+        )
+
+        self.assertEqual("Disabled", info.versioning_status)
+
+    def test_get_bucket_info_unknown_on_api_error(self):
+        from s3_browser.services import BotoCoreError as SvcBotoCoreError
+        fake_client = FakeS3Client(
+            ["bucket-one"],
+            {},
+            versioning_responses={"bucket-one": SvcBotoCoreError()},
+        )
+        service = S3BrowserService(client_factory=lambda *_, **__: fake_client)
+
+        info = service.get_bucket_info(
+            endpoint_url="https://example.com",
+            access_key="access",
+            secret_key="secret",
+            bucket_name="bucket-one",
+        )
+
+        self.assertEqual("Unknown", info.versioning_status)
 
 
 if __name__ == "__main__":

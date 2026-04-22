@@ -12,7 +12,7 @@ Add `BucketInfo` dataclass to `models.py` with fields:
 - `versioning_status: str` — one of `"Enabled"`, `"Suspended"`, `"Disabled"`, `"Unknown"`
 - `region: Optional[str]`
 
-**Step 2 — Service: `get_bucket_info()`**
+**[done] Step 2 — Service: `get_bucket_info()`**
 Add `S3BrowserService.get_bucket_info(bucket: str) -> BucketInfo` to `services.py`.
 Calls `client.get_bucket_versioning(Bucket=bucket)` and `client.get_bucket_location(Bucket=bucket)`.
 Maps the versioning `Status` field (`"Enabled"` / `"Suspended"` / missing → `"Disabled"`).

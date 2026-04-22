@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - lightweight fallbacks
     class ClientError(Exception):  # type: ignore[no-redef]
         pass
 
-from .models import BucketListing, ObjectDetails, ObjectPage
+from .models import BucketInfo, BucketListing, ObjectDetails, ObjectPage
 
 
 class TransferCancelledError(RuntimeError):
@@ -196,6 +196,42 @@ class S3BrowserService:
             error=bucket_error,
             has_more=has_more,
             continuation_token=next_continuation_token,
+        )
+
+    def get_bucket_info(
+        self,
+        *,
+        endpoint_url: str,
+        access_key: str,
+        secret_key: str,
+        bucket_name: str,
+    ) -> BucketInfo:
+        """Return metadata about a bucket including versioning status and region."""
+
+        client = self._create_client(endpoint_url, access_key, secret_key)
+
+        try:
+            versioning_response = client.get_bucket_versioning(Bucket=bucket_name)
+            raw_status = versioning_response.get("Status", "")
+            if raw_status == "Enabled":
+                versioning_status = "Enabled"
+            elif raw_status == "Suspended":
+                versioning_status = "Suspended"
+            else:
+                versioning_status = "Disabled"
+        except (ClientError, BotoCoreError):
+            versioning_status = "Unknown"
+
+        try:
+            location_response = client.get_bucket_location(Bucket=bucket_name)
+            region = location_response.get("LocationConstraint") or "us-east-1"
+        except (ClientError, BotoCoreError):
+            region = None
+
+        return BucketInfo(
+            name=bucket_name,
+            versioning_status=versioning_status,
+            region=region,
         )
 
     def get_object_details(
