@@ -607,14 +607,23 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         def handle_success(listing: BucketListing) -> None:
             self._render_prefix_listing(node_id, listing)
 
-        self.presenter.list_objects(
-            bucket_name=node_info.bucket,
-            max_keys=self._current_max_keys,
-            prefix=node_info.prefix or "",
-            on_success=handle_success,
-            on_error=lambda msg: self._handle_prefix_error(node_id, msg),
-            on_done=self._end_operation,
-        )
+        if self._show_versions:
+            self.presenter.list_object_versions(
+                bucket_name=node_info.bucket,
+                prefix=node_info.prefix or "",
+                on_success=handle_success,
+                on_error=lambda msg: self._handle_prefix_error(node_id, msg),
+                on_done=self._end_operation,
+            )
+        else:
+            self.presenter.list_objects(
+                bucket_name=node_info.bucket,
+                max_keys=self._current_max_keys,
+                prefix=node_info.prefix or "",
+                on_success=handle_success,
+                on_error=lambda msg: self._handle_prefix_error(node_id, msg),
+                on_done=self._end_operation,
+            )
 
     def _get_selected_node(self) -> tuple[str, NodeInfo] | None:
         index = self.results_tree.currentIndex()
@@ -1080,13 +1089,21 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         def handle_success(listing: BucketListing) -> None:
             self._render_prefix_listing(node_id, listing)
 
-        self.presenter.list_objects(
-            bucket_name=node_info.bucket,
-            max_keys=self._current_max_keys,
-            prefix=node_info.prefix or "",
-            on_success=handle_success,
-            on_error=lambda msg: self._handle_prefix_error(node_id, msg),
-        )
+        if self._show_versions:
+            self.presenter.list_object_versions(
+                bucket_name=node_info.bucket,
+                prefix=node_info.prefix or "",
+                on_success=handle_success,
+                on_error=lambda msg: self._handle_prefix_error(node_id, msg),
+            )
+        else:
+            self.presenter.list_objects(
+                bucket_name=node_info.bucket,
+                max_keys=self._current_max_keys,
+                prefix=node_info.prefix or "",
+                on_success=handle_success,
+                on_error=lambda msg: self._handle_prefix_error(node_id, msg),
+            )
 
     def _handle_tree_double_click(self, index: QtCore.QModelIndex) -> None:
         item = self._model.itemFromIndex(index)
@@ -1110,15 +1127,25 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
                     return
                 self._handle_load_more_result(node_id, parent_id, listing)
 
-            self.presenter.list_objects(
-                bucket_name=node_info.bucket,
-                max_keys=self._current_max_keys,
-                prefix=node_info.prefix or "",
-                delimiter=node_info.delimiter,
-                continuation_token=node_info.continuation_token,
-                on_success=handle_success,
-                on_error=lambda msg: self._handle_load_more_error(node_id, msg),
-            )
+            if self._show_versions:
+                self.presenter.list_object_versions(
+                    bucket_name=node_info.bucket,
+                    prefix=node_info.prefix or "",
+                    delimiter=node_info.delimiter,
+                    continuation_token=node_info.continuation_token,
+                    on_success=handle_success,
+                    on_error=lambda msg: self._handle_load_more_error(node_id, msg),
+                )
+            else:
+                self.presenter.list_objects(
+                    bucket_name=node_info.bucket,
+                    max_keys=self._current_max_keys,
+                    prefix=node_info.prefix or "",
+                    delimiter=node_info.delimiter,
+                    continuation_token=node_info.continuation_token,
+                    on_success=handle_success,
+                    on_error=lambda msg: self._handle_load_more_error(node_id, msg),
+                )
         elif node_info.node_type == "object":
             self._show_object_details(node_info.bucket, node_info.key or "")
         elif node_info.node_type == "version":
