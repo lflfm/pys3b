@@ -8,7 +8,7 @@ from typing import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from .models import BucketInfo, BucketListing, ObjectDetails
+from .models import BucketInfo, BucketListing, ObjectDetails, ObjectVersion
 from .presenter import S3BrowserPresenter
 from .profiles import ConnectionProfile
 from .settings import AppSettings
@@ -45,6 +45,7 @@ class NodeInfo:
     loaded: bool = False
     loading: bool = False
     parent_id: str | None = None
+    version_id: str | None = None
 
 
 class UploadDropTreeView(QtWidgets.QTreeView):
@@ -117,6 +118,7 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
 
         self._selected_connection: str = ""
         self._selected_bucket: str = ""
+        self._show_versions: bool = False
 
         self._create_menu()
         self._create_widgets()
@@ -155,6 +157,10 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         self.objects_refresh_action = self.objects_menu.addAction("Refresh")
         self.objects_refresh_action.triggered.connect(self.list_objects)
         self.objects_refresh_action.setEnabled(False)
+        self.show_versions_action = self.objects_menu.addAction("Show Versions")
+        self.show_versions_action.setCheckable(True)
+        self.show_versions_action.setChecked(False)
+        self.show_versions_action.triggered.connect(self._toggle_show_versions)
 
         options_menu = menubar.addMenu("Options")
         settings_action = options_menu.addAction("Settings")
@@ -233,6 +239,12 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         self.object_multi_menu = QtWidgets.QMenu(self)
         self.object_multi_menu.addAction("Download", self._download_selected_objects)
         self.object_multi_menu.addAction("Delete", self._delete_selected_objects)
+
+        self.version_menu = QtWidgets.QMenu(self)
+        self.version_menu.addAction("Info", self._open_selected_version_info)
+        self.version_menu.addAction("Download this version", self._download_selected_version)
+        self.version_menu.addSeparator()
+        self.version_menu.addAction("Delete this version", self._delete_selected_version)
 
         self.folder_menu = QtWidgets.QMenu(self)
         self.folder_menu.addAction("Upload...", self.upload_file)
@@ -425,13 +437,26 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         def handle_success(listing: BucketListing) -> None:
             self._populate_tree([listing])
 
-        self.presenter.list_objects(
-            bucket_name=bucket_name,
-            max_keys=max_keys,
-            on_success=handle_success,
-            on_error=lambda msg: self._show_error("List Error", f"Error listing objects: {msg}"),
-            on_done=self._end_operation,
-        )
+        if self._show_versions:
+            self.presenter.list_object_versions(
+                bucket_name=bucket_name,
+                on_success=handle_success,
+                on_error=lambda msg: self._show_error("List Error", f"Error listing versions: {msg}"),
+                on_done=self._end_operation,
+            )
+        else:
+            self.presenter.list_objects(
+                bucket_name=bucket_name,
+                max_keys=max_keys,
+                on_success=handle_success,
+                on_error=lambda msg: self._show_error("List Error", f"Error listing objects: {msg}"),
+                on_done=self._end_operation,
+            )
+
+    def _toggle_show_versions(self, checked: bool) -> None:
+        self._show_versions = checked
+        if self._selected_bucket:
+            self.list_objects()
 
     def _auto_connect_if_enabled(self) -> None:
         last_connection = self.presenter.maybe_auto_connect_profile()
@@ -808,7 +833,8 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
                 self._insert_prefix_node(parent_item, listing.name, prefix, listing.prefix)
                 prefixes_added += 1
             for key in page.keys:
-                self._insert_file_node(parent_item, listing.name, key, listing.prefix)
+                versions = page.versions.get(key, [])
+                self._insert_file_node(parent_item, listing.name, key, listing.prefix, versions=versions)
                 objects_added += 1
         self._refresh_load_more_node(parent_item, listing)
         return objects_added, prefixes_added
@@ -827,12 +853,43 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
         parent_item.appendRow(prefix_item)
         return node_id
 
-    def _insert_file_node(self, parent_item: QtGui.QStandardItem, bucket: str, key: str, base_prefix: str) -> None:
+    def _insert_file_node(
+        self,
+        parent_item: QtGui.QStandardItem,
+        bucket: str,
+        key: str,
+        base_prefix: str,
+        *,
+        versions: list[ObjectVersion] | None = None,
+    ) -> None:
         label = self._relative_name(key, base_prefix)
         node_id = f"object:{bucket}:{key}"
         item = QtGui.QStandardItem(label)
         item.setEditable(False)
         self._register_node(node_id, item, NodeInfo(node_type="object", bucket=bucket, key=key))
+        parent_item.appendRow(item)
+        for v in (versions or []):
+            self._insert_version_node(item, bucket, key, v)
+
+    def _insert_version_node(
+        self, parent_item: QtGui.QStandardItem, bucket: str, key: str, version: ObjectVersion
+    ) -> None:
+        vid_short = version.version_id[:12]
+        ts = format_last_modified(version.last_modified) if version.last_modified else "—"
+        if version.is_delete_marker:
+            label = f"[deleted] {vid_short}  {ts}"
+        else:
+            size_str = format_size(version.size) if version.size is not None else "—"
+            latest = " ★" if version.is_latest else ""
+            label = f"{vid_short}{latest}  {ts}  {size_str}"
+        node_id = f"version:{bucket}:{key}:{version.version_id}"
+        item = QtGui.QStandardItem(label)
+        item.setEditable(False)
+        self._register_node(
+            node_id,
+            item,
+            NodeInfo(node_type="version", bucket=bucket, key=key, version_id=version.version_id),
+        )
         parent_item.appendRow(item)
 
     def _register_node(self, node_id: str, item: QtGui.QStandardItem, info: NodeInfo) -> None:
@@ -1064,6 +1121,8 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
             )
         elif node_info.node_type == "object":
             self._show_object_details(node_info.bucket, node_info.key or "")
+        elif node_info.node_type == "version":
+            self._show_version_details(node_info.bucket, node_info.key or "", node_info.version_id or "")
 
     def _handle_tree_right_click(self, pos: QtCore.QPoint) -> None:
         index = self.results_tree.indexAt(pos)
@@ -1097,6 +1156,8 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
                 menu = self.object_multi_menu
             else:
                 menu = self.object_menu
+        elif node_info.node_type == "version":
+            menu = self.version_menu
         elif node_info.node_type in {"prefix", "bucket"}:
             menu = self.folder_menu
         if not menu:
@@ -1229,6 +1290,48 @@ class S3BrowserWindow(QtWidgets.QMainWindow):
     def _handle_transfer_cancelled(self, dialog: TransferDialog | None, message: str) -> None:
         self._close_transfer_dialog(dialog)
         self._set_status(message)
+
+    def _get_selected_version(self) -> tuple[str, str, str] | None:
+        selected = self._get_selected_node()
+        if not selected:
+            return None
+        _, info = selected
+        if info.node_type != "version":
+            return None
+        return info.bucket, info.key or "", info.version_id or ""
+
+    def _open_selected_version_info(self) -> None:
+        v = self._get_selected_version()
+        if v:
+            self._show_version_details(*v)
+
+    def _download_selected_version(self) -> None:
+        QtWidgets.QMessageBox.information(self, "Not Implemented", "Version-specific download coming soon.")
+
+    def _delete_selected_version(self) -> None:
+        QtWidgets.QMessageBox.information(self, "Not Implemented", "Version-specific delete coming soon.")
+
+    def _show_version_details(self, bucket: str, key: str, version_id: str) -> None:
+        dialog = ObjectDetailsDialog(
+            self,
+            bucket=bucket,
+            key=key,
+        )
+
+        def handle_success(details: ObjectDetails) -> None:
+            dialog.display_details(details)
+
+        def handle_error(message: str) -> None:
+            dialog.display_error(message)
+
+        self.presenter.get_object_details(
+            bucket_name=bucket,
+            key=key,
+            version_id=version_id,
+            on_success=handle_success,
+            on_error=handle_error,
+        )
+        dialog.exec()
 
     def _show_object_details(self, bucket: str, key: str) -> None:
         dialog = ObjectDetailsDialog(

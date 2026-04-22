@@ -56,7 +56,7 @@ Uses boto3 `list_object_versions` API. Returns a `BucketListing` whose `ObjectPa
 
 ### Phase 3 — Versioning UI
 
-**Step 8 — Tree: version nodes + "Show Versions" toggle**
+**[done] Step 8 — Tree: version nodes + "Show Versions" toggle**
 - In `qt_view.py`: extend `NodeInfo` with a `version_id: Optional[str]` field; add `node_type = "version"`.
 - Add `"Show Versions"` checkable action to the **Objects** menu. When checked, expand file nodes to load and display version child nodes (each showing version ID suffix, last-modified, size, delete-marker indicator). When unchecked, collapse/hide version nodes.
 - Update `_populate_tree` / `_render_listing_contents` / `_insert_file_node` / `_handle_tree_open` to handle version child nodes when the toggle is on.
